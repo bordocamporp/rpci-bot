@@ -651,39 +651,43 @@ async function sendTransferLog(offer, statusText) {
   const channel = await client.channels.fetch(TRANSFER_LOG_CHANNEL_ID).catch(() => null);
   if (!channel) return;
 
+  const embed = new EmbedBuilder()
+    .setTitle('🚨 UFFICIALE')
+    .setColor(0xd4af37)
+    .setDescription(
+      `**${offer.platformId}** è ufficialmente un nuovo giocatore di:\n\n` +
+      `🏟️ **${offer.fromClubName}**`
+    )
+    .addFields(
+      {
+        name: '🔁 Trasferimento',
+        value: `Da **${offer.targetClubName}** a **${offer.fromClubName}**`
+      },
+      {
+        name: '🎮 Giocatore',
+        value: `${offer.platformId} • ${offer.platform}`
+      },
+      {
+        name: '📄 Contratto',
+        value: `${offer.contractYears} anno/i`
+      },
+      {
+        name: '👑 Capitano offerente',
+        value: `<@${offer.captainDiscordId}>`
+      },
+      {
+        name: '✅ Stato',
+        value: statusText
+      }
+    )
+    .setFooter({
+      text: 'RPCI • Ufficialità mercato'
+    })
+    .setTimestamp();
+
   await channel.send({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle('✅ Trattativa conclusa')
-        .setColor(0x2ecc71)
-        .addFields(
-          {
-            name: 'Club offerente',
-            value: offer.fromClubName
-          },
-          {
-            name: 'Club del giocatore',
-            value: offer.targetClubName
-          },
-          {
-            name: 'Capitano',
-            value: `<@${offer.captainDiscordId}>`
-          },
-          {
-            name: 'Giocatore',
-            value: `${offer.platformId} (${offer.platform})`
-          },
-          {
-            name: 'Contratto',
-            value: `${offer.contractYears} anno/i`
-          },
-          {
-            name: 'Stato',
-            value: statusText
-          }
-        )
-        .setTimestamp()
-    ]
+    content: '🚨 **UFFICIALE MERCATO**',
+    embeds: [embed]
   });
 }
 
