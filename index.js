@@ -1,28 +1,5 @@
 require('dotenv').config();
 
-/*
-  NOTA IMPORTANTE:
-  Per far funzionare /offerta devi creare su Supabase queste 2 tabelle:
-
-  1) transfer_offers
-  - id uuid primary key default gen_random_uuid()
-  - club_name text
-  - captain_discord_id text
-  - player_ids jsonb
-  - contract text
-  - notes text
-  - status text default 'pending'
-  - created_at timestamptz default now()
-  - closed_at timestamptz
-
-  2) transfer_offer_players
-  - id uuid primary key default gen_random_uuid()
-  - offer_id uuid references transfer_offers(id)
-  - discord_id text
-  - response_status text default 'pending'
-  - responded_at timestamptz
-*/
-
 const {
   Client,
   GatewayIntentBits,
@@ -96,6 +73,7 @@ const commands = [
         .setName('club')
         .setDescription('Nome del club che fa l’offerta')
         .setRequired(true)
+        .setAutocomplete(true)
     )
     .addStringOption(option =>
       option
@@ -137,12 +115,34 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
-client.once('clientReady', () => {
+client.once('ready', () => {
   console.log(`✅ Bot online come ${client.user.tag}`);
 });
 
 function extractDiscordIds(input) {
   return [...new Set((input.match(/\d{15,25}/g) || []))];
+}
+
+async function getClubChoices(focusedValue) {
+  let query = supabase
+    .from('clubs')
+    .select('id, name')
+    .eq('status', 'approved')
+    .order('name', { ascending: true })
+    .limit(25);
+
+  if (focusedValue && focusedValue.trim().length > 0) {
+    query = query.ilike('name', `%${focusedValue.trim()}%`);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) return [];
+
+  return data.slice(0, 25).map(club => ({
+    name: club.name,
+    value: club.name
+  }));
 }
 
 async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) {
@@ -194,24 +194,31 @@ async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) 
 function buildPanel() {
   const embed = new EmbedBuilder()
     .setColor(0xd4af37)
-    .setAuthor({ name: 'RPCI • Real Pro Clubs Italia' })
+    .setAuthor({
+      name: 'RPCI • Real Pro Clubs Italia'
+    })
     .setTitle('🏆 ISCRIZIONI UFFICIALI RPCI')
     .setDescription(
       'Benvenuto nel sistema ufficiale iscrizioni di **RPCI**.\n\n' +
+
       '📋 **Cosa può fare il capitano:**\n' +
       '• Registrare la propria squadra\n' +
       '• Caricare il logo ufficiale in PNG\n' +
       '• Selezionare i giocatori in rosa\n' +
       '• Inserire i dati dei player\n' +
       '• Impostare la durata dei contratti\n\n' +
+
       '⚠️ **Requisiti obbligatori:**\n' +
       '• Minimo 5 giocatori\n' +
       '• Massimo 20 giocatori\n' +
       '• Logo squadra in formato PNG\n' +
       '• Conferma obbligatoria dei player\n\n' +
+
       'Premi il pulsante qui sotto per iniziare l’iscrizione.'
     )
-    .setFooter({ text: 'RPCI • Sistema iscrizioni ufficiale' })
+    .setFooter({
+      text: 'RPCI • Sistema iscrizioni ufficiale'
+    })
     .setTimestamp();
 
   const button = new ButtonBuilder()
@@ -222,7 +229,9 @@ function buildPanel() {
 
   return {
     embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(button)]
+    components: [
+      new ActionRowBuilder().addComponents(button)
+    ]
   };
 }
 
@@ -263,20 +272,31 @@ function buildStaffEmbed(clubName, players, captainDiscordId, logoUrl = null) {
       player.response_status === 'rejected' ? '❌' :
       '⌛';
 
-    return `${icon} **${index + 1}.** <@${player.discord_id}> | Età: ${player.age} | ${player.platform} | Contratto: ${player.contract_years} anno/i`;
+    return `${icon} **${index + 1}.** <@${player.discord_id}> | Età: ${player.age} | ${player.platform}: ${player.platform_id || 'N/D'} | Contratto: ${player.contract_years} anno/i`;
   }).join('\n');
 
   const embed = new EmbedBuilder()
     .setTitle('📋 Nuova richiesta iscrizione squadra')
     .setColor(0xd4af37)
     .addFields(
-      { name: 'Squadra', value: clubName },
-      { name: 'Capitano', value: `<@${captainDiscordId}>` },
-      { name: 'Stato giocatori', value: list || 'Nessun giocatore inserito' }
+      {
+        name: 'Squadra',
+        value: clubName
+      },
+      {
+        name: 'Capitano',
+        value: `<@${captainDiscordId}>`
+      },
+      {
+        name: 'Stato giocatori',
+        value: list || 'Nessun giocatore inserito'
+      }
     )
     .setTimestamp();
 
-  if (logoUrl) embed.setThumbnail(logoUrl);
+  if (logoUrl) {
+    embed.setThumbnail(logoUrl);
+  }
 
   return embed;
 }
@@ -351,6 +371,7 @@ async function finalizeApplication(interaction, draft) {
     discord_id: player.discord_id,
     age: player.age,
     platform: player.platform,
+    platform_id: player.platform_id,
     contract_years: player.contract_years,
     response_status: 'pending'
   }));
@@ -380,10 +401,13 @@ async function finalizeApplication(interaction, draft) {
         content:
           `📋 Sei stato inserito nell’iscrizione della squadra **${draft.teamName}**.\n\n` +
           `Età: ${player.age}\n` +
-          `Piattaforma: ${player.platform}\n` +
+          `Console: ${player.platform}\n` +
+          `ID ${player.platform}: ${player.platform_id || 'N/D'}\n` +
           `Contratto: ${player.contract_years} anno/i\n\n` +
           `Accetti l’iscrizione?`,
-        components: [new ActionRowBuilder().addComponents(accept, reject)]
+        components: [
+          new ActionRowBuilder().addComponents(accept, reject)
+        ]
       }).catch(() => null);
     }
   }
@@ -409,17 +433,20 @@ async function finalizeApplication(interaction, draft) {
         draft.logoUrl
       )
     ],
-    components: [new ActionRowBuilder().addComponents(staffAccept, staffReject)]
+    components: [
+      new ActionRowBuilder().addComponents(staffAccept, staffReject)
+    ]
   });
 
   await supabase
     .from('club_applications')
-    .update({ staff_message_id: staffMessage.id })
+    .update({
+      staff_message_id: staffMessage.id
+    })
     .eq('id', application.id);
 
   drafts.delete(interaction.user.id);
 }
-
 function buildOfferEmbed(offer) {
   return new EmbedBuilder()
     .setTitle('📨 Nuova offerta di trasferimento')
@@ -552,10 +579,20 @@ async function sendOfferToPlayers(offer, playerRows) {
 
 client.on('interactionCreate', async interaction => {
   try {
+    if (interaction.isAutocomplete()) {
+      if (interaction.commandName === 'offerta') {
+        const focusedValue = interaction.options.getFocused();
+        const choices = await getClubChoices(focusedValue);
+        return interaction.respond(choices);
+      }
+    }
+
     if (interaction.isChatInputCommand()) {
 
       if (interaction.commandName === 'registrati') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({
+          flags: MessageFlags.Ephemeral
+        });
 
         const eaId = interaction.options.getString('ea_id');
         const ruolo = interaction.options.getString('ruolo');
@@ -567,7 +604,9 @@ client.on('interactionCreate', async interaction => {
         );
 
         if (player && player.ea_id !== eaId) {
-          return interaction.editReply('❌ Sei già registrato nel sistema RPCI.');
+          return interaction.editReply(
+            '❌ Sei già registrato nel sistema RPCI.'
+          );
         }
 
         return interaction.editReply(
@@ -586,7 +625,9 @@ client.on('interactionCreate', async interaction => {
           });
         }
 
-        const member = await interaction.guild.members.fetch(interaction.user.id);
+        const member = await interaction.guild.members.fetch(
+          interaction.user.id
+        );
 
         if (!member.permissions.has('Administrator')) {
           return interaction.reply({
@@ -621,9 +662,25 @@ client.on('interactionCreate', async interaction => {
         }
 
         const clubName = interaction.options.getString('club').trim();
-        const playerIds = extractDiscordIds(interaction.options.getString('giocatori'));
+        const playerIds = extractDiscordIds(
+          interaction.options.getString('giocatori')
+        );
         const contract = interaction.options.getString('contratto').trim();
         const notes = interaction.options.getString('note')?.trim() || null;
+
+        const { data: selectedClub } = await supabase
+          .from('clubs')
+          .select('*')
+          .eq('name', clubName)
+          .eq('status', 'approved')
+          .maybeSingle();
+
+        if (!selectedClub) {
+          return interaction.reply({
+            content: '❌ Club non valido. Seleziona un club dal menu a tendina.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
 
         if (playerIds.length === 0) {
           return interaction.reply({
@@ -633,7 +690,9 @@ client.on('interactionCreate', async interaction => {
         }
 
         for (const playerId of playerIds) {
-          const targetMember = await interaction.guild.members.fetch(playerId).catch(() => null);
+          const targetMember = await interaction.guild.members
+            .fetch(playerId)
+            .catch(() => null);
 
           if (!targetMember) {
             return interaction.reply({
@@ -646,7 +705,7 @@ client.on('interactionCreate', async interaction => {
         const { data: offer, error: offerError } = await supabase
           .from('transfer_offers')
           .insert({
-            club_name: clubName,
+            club_name: selectedClub.name,
             captain_discord_id: interaction.user.id,
             player_ids: playerIds,
             contract,
@@ -673,7 +732,7 @@ client.on('interactionCreate', async interaction => {
 
         await sendOfferToPlayers({
           id: offer.id,
-          clubName,
+          clubName: selectedClub.name,
           captainDiscordId: interaction.user.id,
           playerIds,
           contract,
@@ -743,7 +802,9 @@ client.on('interactionCreate', async interaction => {
           });
         }
 
-        const { player: captainPlayer } = await getOrCreateUserAndPlayer(interaction.user);
+        const { player: captainPlayer } = await getOrCreateUserAndPlayer(
+          interaction.user
+        );
 
         if (!captainPlayer) {
           return interaction.reply({
@@ -772,7 +833,9 @@ client.on('interactionCreate', async interaction => {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
-        modal.addComponents(new ActionRowBuilder().addComponents(teamInput));
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(teamInput)
+        );
 
         return interaction.showModal(modal);
       }
@@ -823,8 +886,15 @@ client.on('interactionCreate', async interaction => {
 
         const platform = new TextInputBuilder()
           .setCustomId('platform')
-          .setLabel('PSN / XBOX / PC')
-          .setPlaceholder('Esempio: PS5, Xbox, PC')
+          .setLabel('CONSOLE')
+          .setPlaceholder('Scrivi PS5, XBOX oppure PC')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const platformId = new TextInputBuilder()
+          .setCustomId('platform_id')
+          .setLabel('ID PS5 / XBOX / PC')
+          .setPlaceholder('PSN ID, Gamertag Xbox o ID PC')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -839,6 +909,7 @@ client.on('interactionCreate', async interaction => {
           new ActionRowBuilder().addComponents(discordId),
           new ActionRowBuilder().addComponents(age),
           new ActionRowBuilder().addComponents(platform),
+          new ActionRowBuilder().addComponents(platformId),
           new ActionRowBuilder().addComponents(contract)
         );
 
@@ -965,7 +1036,9 @@ client.on('interactionCreate', async interaction => {
           content:
             `✅ Hai selezionato **${draft.rosterSize} giocatori in rosa**.\n\n` +
             'Premi il pulsante qui sotto per inserire il primo giocatore.',
-          components: [buildAddPlayerButton(draft)]
+          components: [
+            buildAddPlayerButton(draft)
+          ]
         });
       }
     }
@@ -1024,7 +1097,9 @@ client.on('interactionCreate', async interaction => {
             content:
               '✅ Logo ricevuto.\n\n' +
               'Ora seleziona i **giocatori in rosa**.',
-            components: [buildRosterSelect()],
+            components: [
+              buildRosterSelect()
+            ],
             flags: MessageFlags.Ephemeral
           });
 
@@ -1052,10 +1127,17 @@ client.on('interactionCreate', async interaction => {
           .getTextInputValue('discord_id')
           .trim();
 
-        const age = Number(interaction.fields.getTextInputValue('age').trim());
+        const age = Number(
+          interaction.fields.getTextInputValue('age').trim()
+        );
 
         const platform = interaction.fields
           .getTextInputValue('platform')
+          .trim()
+          .toUpperCase();
+
+        const platformId = interaction.fields
+          .getTextInputValue('platform_id')
           .trim();
 
         const contractYears = Number(
@@ -1108,6 +1190,20 @@ client.on('interactionCreate', async interaction => {
           });
         }
 
+        if (!['PS5', 'XBOX', 'PC'].includes(platform)) {
+          return interaction.reply({
+            content: '❌ Console non valida. Scrivi solo PS5, XBOX oppure PC.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (!platformId || platformId.length < 2) {
+          return interaction.reply({
+            content: '❌ ID PS5 / XBOX / PC non valido.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
         if (![1, 2].includes(contractYears)) {
           return interaction.reply({
             content: '❌ Il contratto può essere solo di 1 o 2 anni.',
@@ -1119,6 +1215,7 @@ client.on('interactionCreate', async interaction => {
           discord_id: discordId,
           age,
           platform,
+          platform_id: platformId,
           contract_years: contractYears,
           response_status: 'pending'
         });
@@ -1129,12 +1226,16 @@ client.on('interactionCreate', async interaction => {
               `✅ Giocatore inserito.\n\n` +
               `Progresso: **${draft.players.length}/${draft.rosterSize}**\n` +
               `Mancano **${draft.rosterSize - draft.players.length}** giocatori.`,
-            components: [buildAddPlayerButton(draft)],
+            components: [
+              buildAddPlayerButton(draft)
+            ],
             flags: MessageFlags.Ephemeral
           });
         }
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({
+          flags: MessageFlags.Ephemeral
+        });
 
         await finalizeApplication(interaction, draft);
 
