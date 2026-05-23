@@ -21,6 +21,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const ALLOWED_REGISTRATION_CHANNEL_ID = '1507746191528562778';
 const STAFF_CHANNEL_ID = '1507744124512768050';
+
 const CAPTAIN_ROLE_ID = '1507736309282635817';
 const PLAYER_ROLE_ID = '1507740330299228161';
 
@@ -67,18 +68,18 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('avvia_iscrizioni')
-    .setDescription('Pubblica il pannello ufficiale per iscrivere le squadre RPCI'),
+    .setDescription('Pubblica il pannello ufficiale iscrizioni'),
 
   new SlashCommandBuilder()
     .setName('offerta')
     .setDescription('Crea una offerta di trasferimento')
-].map(command => command.toJSON());
+].map(c => c.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST({ version: '10' })
+  .setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('🔄 Registrazione slash commands...');
 
     await rest.put(
       Routes.applicationGuildCommands(
@@ -88,9 +89,10 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
       { body: commands }
     );
 
-    console.log('✅ Slash commands registrate!');
-  } catch (error) {
-    console.error('❌ Errore registrazione slash commands:', error);
+    console.log('✅ Slash commands registrate');
+
+  } catch (err) {
+    console.error(err);
   }
 })();
 
@@ -98,7 +100,12 @@ client.once('ready', () => {
   console.log(`✅ Bot online come ${client.user.tag}`);
 });
 
-async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) {
+async function getOrCreateUserAndPlayer(
+  discordUser,
+  eaId = null,
+  ruolo = null
+) {
+
   let { data: user } = await supabase
     .from('users')
     .select('*')
@@ -106,7 +113,8 @@ async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) 
     .single();
 
   if (!user) {
-    const { data: newUser, error } = await supabase
+
+    const { data: newUser } = await supabase
       .from('users')
       .insert({
         discord_id: discordUser.id,
@@ -115,7 +123,6 @@ async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) 
       .select()
       .single();
 
-    if (error) throw error;
     user = newUser;
   }
 
@@ -126,7 +133,8 @@ async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) 
     .single();
 
   if (!player && eaId && ruolo) {
-    const { data: newPlayer, error } = await supabase
+
+    const { data: newPlayer } = await supabase
       .from('players')
       .insert({
         user_id: user.id,
@@ -137,7 +145,6 @@ async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) 
       .select()
       .single();
 
-    if (error) throw error;
     player = newPlayer;
   }
 
@@ -145,39 +152,17 @@ async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) 
 }
 
 function buildPanel() {
+
   const embed = new EmbedBuilder()
     .setColor(0xd4af37)
-    .setAuthor({
-      name: 'RPCI • Real Pro Clubs Italia'
-    })
-    .setTitle('🏆 ISCRIZIONI UFFICIALI RPCI')
+    .setTitle('🏆 ISCRIZIONI RPCI')
     .setDescription(
-      'Benvenuto nel sistema ufficiale iscrizioni di **RPCI**.\n\n' +
-
-      '📋 **Cosa può fare il capitano:**\n' +
-      '• Registrare la propria squadra\n' +
-      '• Caricare il logo ufficiale in PNG\n' +
-      '• Selezionare i giocatori in rosa\n' +
-      '• Inserire i dati dei player\n' +
-      '• Impostare la durata dei contratti\n\n' +
-
-      '⚠️ **Requisiti obbligatori:**\n' +
-      '• Minimo 5 giocatori\n' +
-      '• Massimo 20 giocatori\n' +
-      '• Logo squadra in formato PNG\n' +
-      '• Conferma obbligatoria dei player\n\n' +
-
-      'Premi il pulsante qui sotto per iniziare l’iscrizione.'
-    )
-    .setFooter({
-      text: 'RPCI • Sistema iscrizioni ufficiale'
-    })
-    .setTimestamp();
+      'Premi il pulsante qui sotto per iscrivere la tua squadra.'
+    );
 
   const button = new ButtonBuilder()
     .setCustomId('start_registration')
     .setLabel('ISCRIVI SQUADRA')
-    .setEmoji('🏆')
     .setStyle(ButtonStyle.Primary);
 
   return {
@@ -189,43 +174,55 @@ function buildPanel() {
 }
 
 function buildRosterSelect() {
+
   const options = [];
 
   for (let i = 1; i <= 20; i++) {
+
     options.push({
-      label: `${i} giocatori in rosa`,
-      value: String(i),
-      description: `Iscrivi ${i} giocatori`
+      label: `${i} giocatori`,
+      value: String(i)
     });
   }
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId('roster_select')
-    .setPlaceholder('Giocatori in rosa')
+    .setPlaceholder('Seleziona numero giocatori')
     .addOptions(options);
 
-  return new ActionRowBuilder().addComponents(menu);
+  return new ActionRowBuilder()
+    .addComponents(menu);
 }
 
 function buildAddPlayerButton(draft) {
-  const next = draft.players.length + 1;
 
-  const button = new ButtonBuilder()
-    .setCustomId('add_player')
-    .setLabel(`INSERISCI GIOCATORE ${next}/${draft.rosterSize}`)
-    .setStyle(ButtonStyle.Primary);
+  return new ActionRowBuilder()
+    .addComponents(
 
-  return new ActionRowBuilder().addComponents(button);
+      new ButtonBuilder()
+        .setCustomId('add_player')
+        .setLabel(
+          `INSERISCI GIOCATORE ${draft.players.length + 1}/${draft.rosterSize}`
+        )
+        .setStyle(ButtonStyle.Primary)
+    );
 }
-
 function buildStaffEmbed(clubName, players, captainDiscordId, logoUrl = null) {
+
   const list = players.map((player, index) => {
+
     const icon =
       player.response_status === 'accepted' ? '✅' :
       player.response_status === 'rejected' ? '❌' :
       '⌛';
 
-    return `${icon} **${index + 1}.** <@${player.discord_id}> | Età: ${player.age} | ${player.platform}: ${player.platform_id || 'N/D'} | Contratto: ${player.contract_years} anno/i`;
+    return (
+      `${icon} **${index + 1}.** <@${player.discord_id}> | ` +
+      `Età: ${player.age} | ` +
+      `${player.platform}: ${player.platform_id || 'N/D'} | ` +
+      `Contratto: ${player.contract_years} anno/i`
+    );
+
   }).join('\n');
 
   const embed = new EmbedBuilder()
@@ -241,7 +238,7 @@ function buildStaffEmbed(clubName, players, captainDiscordId, logoUrl = null) {
         value: `<@${captainDiscordId}>`
       },
       {
-        name: 'Stato giocatori',
+        name: 'Giocatori',
         value: list || 'Nessun giocatore inserito'
       }
     )
@@ -255,6 +252,7 @@ function buildStaffEmbed(clubName, players, captainDiscordId, logoUrl = null) {
 }
 
 async function updateStaffMessage(applicationId) {
+
   const { data: app } = await supabase
     .from('club_applications')
     .select('*, clubs(name, logo_url)')
@@ -286,6 +284,7 @@ async function updateStaffMessage(applicationId) {
 }
 
 async function finalizeApplication(interaction, draft) {
+
   const shortName = draft.teamName
     .replace(/[^a-zA-Z0-9]/g, '')
     .slice(0, 5)
@@ -337,32 +336,35 @@ async function finalizeApplication(interaction, draft) {
   if (playersError) throw playersError;
 
   for (const player of insertedPlayers) {
-    const user = await client.users.fetch(player.discord_id).catch(() => null);
 
-    if (user) {
-      const accept = new ButtonBuilder()
-        .setCustomId(`player_accept_${player.id}`)
-        .setLabel('ACCETTA')
-        .setStyle(ButtonStyle.Success);
+    const user = await client.users
+      .fetch(player.discord_id)
+      .catch(() => null);
 
-      const reject = new ButtonBuilder()
-        .setCustomId(`player_reject_${player.id}`)
-        .setLabel('RIFIUTA')
-        .setStyle(ButtonStyle.Danger);
+    if (!user) continue;
 
-      await user.send({
-        content:
-          `📋 Sei stato inserito nell’iscrizione della squadra **${draft.teamName}**.\n\n` +
-          `Età: ${player.age}\n` +
-          `Console: ${player.platform}\n` +
-          `ID ${player.platform}: ${player.platform_id || 'N/D'}\n` +
-          `Contratto: ${player.contract_years} anno/i\n\n` +
-          `Accetti l’iscrizione?`,
-        components: [
-          new ActionRowBuilder().addComponents(accept, reject)
-        ]
-      }).catch(() => null);
-    }
+    const accept = new ButtonBuilder()
+      .setCustomId(`player_accept_${player.id}`)
+      .setLabel('ACCETTA')
+      .setStyle(ButtonStyle.Success);
+
+    const reject = new ButtonBuilder()
+      .setCustomId(`player_reject_${player.id}`)
+      .setLabel('RIFIUTA')
+      .setStyle(ButtonStyle.Danger);
+
+    await user.send({
+      content:
+        `📋 Sei stato inserito nell’iscrizione della squadra **${draft.teamName}**.\n\n` +
+        `Età: ${player.age}\n` +
+        `Console: ${player.platform}\n` +
+        `ID ${player.platform}: ${player.platform_id || 'N/D'}\n` +
+        `Contratto: ${player.contract_years} anno/i\n\n` +
+        `Accetti l’iscrizione?`,
+      components: [
+        new ActionRowBuilder().addComponents(accept, reject)
+      ]
+    }).catch(() => null);
   }
 
   const staffChannel = await client.channels.fetch(STAFF_CHANNEL_ID);
@@ -402,6 +404,7 @@ async function finalizeApplication(interaction, draft) {
 }
 
 async function getApprovedClubs() {
+
   const { data, error } = await supabase
     .from('clubs')
     .select('id, name, short_name, logo_url, status')
@@ -409,11 +412,13 @@ async function getApprovedClubs() {
     .order('name', { ascending: true });
 
   if (error || !data) return [];
+
   return data;
 }
 
 async function getClubRoster(clubId) {
-  const { data: applications, error: appError } = await supabase
+
+  const { data: applications } = await supabase
     .from('club_applications')
     .select('id, club_id, status')
     .eq('club_id', clubId)
@@ -421,31 +426,59 @@ async function getClubRoster(clubId) {
     .order('created_at', { ascending: false })
     .limit(1);
 
-  if (appError || !applications || applications.length === 0) return [];
+  if (!applications || applications.length === 0) return [];
 
   const applicationId = applications[0].id;
 
-  const { data: players, error: playersError } = await supabase
+  const { data: players } = await supabase
     .from('club_application_players')
     .select('*')
     .eq('application_id', applicationId)
     .eq('response_status', 'accepted')
     .order('created_at', { ascending: true });
 
-  if (playersError || !players) return [];
-  return players;
+  return players || [];
 }
 
+async function getApprovedApplicationByClubId(clubId) {
+
+  const { data } = await supabase
+    .from('club_applications')
+    .select('id, club_id, status')
+    .eq('club_id', clubId)
+    .eq('status', 'approved')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return data || null;
+}
 function buildOfferEmbed(offer) {
+
   return new EmbedBuilder()
     .setTitle('📨 Nuova offerta di trasferimento')
     .setColor(0x3498db)
     .addFields(
-      { name: 'Club offerente', value: offer.fromClubName },
-      { name: 'Club del giocatore', value: offer.targetClubName },
-      { name: 'Capitano', value: `<@${offer.captainDiscordId}>` },
-      { name: 'Giocatore', value: `${offer.platformId} (${offer.platform})` },
-      { name: 'Contratto', value: `${offer.contractYears} anno/i` },
+      {
+        name: 'Club offerente',
+        value: offer.fromClubName
+      },
+      {
+        name: 'Club del giocatore',
+        value: offer.targetClubName
+      },
+      {
+        name: 'Capitano',
+        value: `<@${offer.captainDiscordId}>`
+      },
+      {
+        name: 'Giocatore',
+        value: `${offer.platformId} (${offer.platform})`
+      },
+      {
+        name: 'Contratto',
+        value: `${offer.contractYears} anno/i`
+      },
       {
         name: 'Scadenza risposta',
         value: '24 ore. Se il giocatore non risponde, l’offerta viene accettata automaticamente.'
@@ -455,6 +488,7 @@ function buildOfferEmbed(offer) {
 }
 
 function buildOfferPanelEmbed(draft) {
+
   return new EmbedBuilder()
     .setTitle('💼 Crea offerta di trasferimento')
     .setColor(0xd4af37)
@@ -488,7 +522,9 @@ function buildOfferPanelEmbed(draft) {
     })
     .setTimestamp();
 }
+
 function buildClubSelect(clubs, page = 0) {
+
   const start = page * CLUBS_PER_PAGE;
   const pageClubs = clubs.slice(start, start + CLUBS_PER_PAGE);
 
@@ -499,7 +535,9 @@ function buildClubSelect(clubs, page = 0) {
       .addOptions(
         pageClubs.map(club => ({
           label: club.name.slice(0, 100),
-          description: club.short_name ? `Tag: ${club.short_name}` : 'Squadra iscritta',
+          description: club.short_name
+            ? `Tag: ${club.short_name}`
+            : 'Squadra iscritta',
           value: club.id
         }))
       )
@@ -507,6 +545,7 @@ function buildClubSelect(clubs, page = 0) {
 }
 
 function buildClubPaginationButtons(page, totalPages) {
+
   const prev = new ButtonBuilder()
     .setCustomId('offer_clubs_prev')
     .setLabel('⬅️')
@@ -523,6 +562,7 @@ function buildClubPaginationButtons(page, totalPages) {
 }
 
 function buildPlayersSelect(players, page = 0) {
+
   const start = page * PLAYERS_PER_PAGE;
   const pagePlayers = players.slice(start, start + PLAYERS_PER_PAGE);
 
@@ -541,6 +581,7 @@ function buildPlayersSelect(players, page = 0) {
 }
 
 function buildPlayersPaginationButtons(page, totalPages) {
+
   const prev = new ButtonBuilder()
     .setCustomId('offer_players_prev')
     .setLabel('⬅️')
@@ -557,6 +598,7 @@ function buildPlayersPaginationButtons(page, totalPages) {
 }
 
 function buildContractSelect() {
+
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('offer_contract_select')
@@ -582,6 +624,7 @@ function buildContractSelect() {
 }
 
 function buildConfirmOfferButton(disabled = false) {
+
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('offer_confirm')
@@ -597,17 +640,30 @@ function buildConfirmOfferButton(disabled = false) {
 }
 
 async function buildOfferComponents(draft) {
+
   const components = [];
 
   const clubs = draft.clubs || [];
-  const clubTotalPages = Math.max(1, Math.ceil(clubs.length / CLUBS_PER_PAGE));
+  const clubTotalPages = Math.max(
+    1,
+    Math.ceil(clubs.length / CLUBS_PER_PAGE)
+  );
 
   if (!draft.targetClubId) {
+
     if (clubs.length > 0) {
-      components.push(buildClubSelect(clubs, draft.clubPage || 0));
+
+      components.push(
+        buildClubSelect(clubs, draft.clubPage || 0)
+      );
 
       if (clubTotalPages > 1) {
-        components.push(buildClubPaginationButtons(draft.clubPage || 0, clubTotalPages));
+        components.push(
+          buildClubPaginationButtons(
+            draft.clubPage || 0,
+            clubTotalPages
+          )
+        );
       }
     }
 
@@ -615,14 +671,26 @@ async function buildOfferComponents(draft) {
   }
 
   const players = draft.players || [];
-  const playerTotalPages = Math.max(1, Math.ceil(players.length / PLAYERS_PER_PAGE));
+  const playerTotalPages = Math.max(
+    1,
+    Math.ceil(players.length / PLAYERS_PER_PAGE)
+  );
 
   if (!draft.selectedApplicationPlayerId) {
+
     if (players.length > 0) {
-      components.push(buildPlayersSelect(players, draft.playerPage || 0));
+
+      components.push(
+        buildPlayersSelect(players, draft.playerPage || 0)
+      );
 
       if (playerTotalPages > 1) {
-        components.push(buildPlayersPaginationButtons(draft.playerPage || 0, playerTotalPages));
+        components.push(
+          buildPlayersPaginationButtons(
+            draft.playerPage || 0,
+            playerTotalPages
+          )
+        );
       }
     }
 
@@ -639,16 +707,18 @@ async function buildOfferComponents(draft) {
 }
 
 async function updateOfferDraftMessage(interaction, draft) {
-  const components = await buildOfferComponents(draft);
 
   return interaction.update({
     embeds: [buildOfferPanelEmbed(draft)],
-    components
+    components: await buildOfferComponents(draft)
   });
 }
-
 async function sendTransferLog(offer, statusText) {
-  const channel = await client.channels.fetch(TRANSFER_LOG_CHANNEL_ID).catch(() => null);
+
+  const channel = await client.channels
+    .fetch(TRANSFER_LOG_CHANNEL_ID)
+    .catch(() => null);
+
   if (!channel) return;
 
   const embed = new EmbedBuilder()
@@ -692,6 +762,7 @@ async function sendTransferLog(offer, statusText) {
 }
 
 async function finalizeOfferIfReady(offerId, forced = false) {
+
   const { data: offer } = await supabase
     .from('transfer_offers')
     .select('*')
@@ -708,6 +779,7 @@ async function finalizeOfferIfReady(offerId, forced = false) {
   if (!responses || responses.length === 0) return;
 
   if (responses.some(r => r.response_status === 'rejected')) {
+
     await supabase
       .from('transfer_offers')
       .update({
@@ -720,6 +792,7 @@ async function finalizeOfferIfReady(offerId, forced = false) {
   }
 
   if (forced) {
+
     await supabase
       .from('transfer_offer_players')
       .update({
@@ -728,6 +801,7 @@ async function finalizeOfferIfReady(offerId, forced = false) {
       })
       .eq('offer_id', offerId)
       .eq('response_status', 'pending');
+
   } else if (responses.some(r => r.response_status === 'pending')) {
     return;
   }
@@ -742,6 +816,21 @@ async function finalizeOfferIfReady(offerId, forced = false) {
     contractYears: offer.contract_years
   };
 
+  if (
+    offer.application_player_id &&
+    offer.from_application_id
+  ) {
+
+    await supabase
+      .from('club_application_players')
+      .update({
+        application_id: offer.from_application_id,
+        contract_years: offer.contract_years,
+        response_status: 'accepted'
+      })
+      .eq('id', offer.application_player_id);
+  }
+
   await supabase
     .from('transfer_offers')
     .update({
@@ -752,12 +841,18 @@ async function finalizeOfferIfReady(offerId, forced = false) {
 
   await sendTransferLog(
     finalOffer,
-    forced ? 'Accettata automaticamente dopo 24 ore.' : 'Accettata dal giocatore.'
+    forced
+      ? 'Accettata automaticamente dopo 24 ore.'
+      : 'Accettata dal giocatore.'
   );
 }
 
 async function sendOfferToPlayer(offer, offerPlayerRow) {
-  const user = await client.users.fetch(offer.playerDiscordId).catch(() => null);
+
+  const user = await client.users
+    .fetch(offer.playerDiscordId)
+    .catch(() => null);
+
   if (!user) return;
 
   const accept = new ButtonBuilder()
@@ -772,19 +867,23 @@ async function sendOfferToPlayer(offer, offerPlayerRow) {
 
   await user.send({
     embeds: [buildOfferEmbed(offer)],
-    components: [new ActionRowBuilder().addComponents(accept, reject)]
+    components: [
+      new ActionRowBuilder().addComponents(accept, reject)
+    ]
   }).catch(() => null);
 
   setTimeout(() => {
     finalizeOfferIfReady(offer.id, true).catch(console.error);
   }, 24 * 60 * 60 * 1000);
 }
-
 client.on('interactionCreate', async interaction => {
+
   try {
+
     if (interaction.isChatInputCommand()) {
 
       if (interaction.commandName === 'registrati') {
+
         await interaction.deferReply({
           flags: MessageFlags.Ephemeral
         });
@@ -807,15 +906,15 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply(
           `✅ Registrazione completata!\n\n` +
           `🎮 EA ID: ${eaId}\n` +
-          `⚽ Ruolo: ${ruolo}\n\n` +
-          `Benvenuto in RPCI.`
+          `⚽ Ruolo: ${ruolo}`
         );
       }
 
       if (interaction.commandName === 'avvia_iscrizioni') {
+
         if (interaction.channelId !== ALLOWED_REGISTRATION_CHANNEL_ID) {
           return interaction.reply({
-            content: '❌ Questo comando può essere usato solo nel canale iscrizioni ufficiale.',
+            content: '❌ Usa questo comando solo nel canale iscrizioni.',
             flags: MessageFlags.Ephemeral
           });
         }
@@ -840,14 +939,17 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (interaction.commandName === 'offerta') {
+
         if (interaction.channelId !== OFFERS_CHANNEL_ID) {
           return interaction.reply({
-            content: '❌ Questo comando può essere usato solo nel canale offerte ufficiale.',
+            content: '❌ Usa /offerta solo nel canale offerte ufficiale.',
             flags: MessageFlags.Ephemeral
           });
         }
 
-        const member = await interaction.guild.members.fetch(interaction.user.id);
+        const member = await interaction.guild.members.fetch(
+          interaction.user.id
+        );
 
         if (!member.roles.cache.has(CAPTAIN_ROLE_ID)) {
           return interaction.reply({
@@ -869,15 +971,19 @@ client.on('interactionCreate', async interaction => {
           captainDiscordId: interaction.user.id,
           clubs,
           clubPage: 0,
+
           targetClubId: null,
           targetClubName: null,
           targetApplicationId: null,
+
           players: [],
           playerPage: 0,
+
           selectedApplicationPlayerId: null,
           playerDiscordId: null,
           playerPlatform: null,
           playerPlatformId: null,
+
           contractYears: null
         });
 
@@ -892,7 +998,9 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isStringSelectMenu()) {
+
       if (interaction.customId === 'offer_club_select') {
+
         const draft = offerDrafts.get(interaction.user.id);
 
         if (!draft) {
@@ -912,19 +1020,12 @@ client.on('interactionCreate', async interaction => {
           });
         }
 
+        const targetApplication =
+          await getApprovedApplicationByClubId(clubId);
+
         const players = await getClubRoster(clubId);
-        const { data: targetApplication } = await supabase
-  .from('club_applications')
-  .select('id')
-  .eq('club_id', clubId)
-  .eq('status', 'approved')
-  .order('created_at', { ascending: false })
-  .limit(1)
-  .maybeSingle();
 
-draft.targetApplicationId = targetApplication?.id || null;
-
-        if (players.length === 0) {
+        if (!targetApplication || players.length === 0) {
           return interaction.reply({
             content: '❌ Questa squadra non ha giocatori accettati in rosa.',
             flags: MessageFlags.Ephemeral
@@ -933,18 +1034,23 @@ draft.targetApplicationId = targetApplication?.id || null;
 
         draft.targetClubId = club.id;
         draft.targetClubName = club.name;
+        draft.targetApplicationId = targetApplication.id;
+
         draft.players = players;
         draft.playerPage = 0;
+
         draft.selectedApplicationPlayerId = null;
         draft.playerDiscordId = null;
         draft.playerPlatform = null;
         draft.playerPlatformId = null;
+
         draft.contractYears = null;
 
         return updateOfferDraftMessage(interaction, draft);
       }
 
       if (interaction.customId === 'offer_player_select') {
+
         const draft = offerDrafts.get(interaction.user.id);
 
         if (!draft) {
@@ -974,6 +1080,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       }
 
       if (interaction.customId === 'offer_contract_select') {
+
         const draft = offerDrafts.get(interaction.user.id);
 
         if (!draft) {
@@ -989,6 +1096,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       }
 
       if (interaction.customId === 'roster_select') {
+
         const draft = drafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1011,9 +1119,13 @@ draft.targetApplicationId = targetApplication?.id || null;
         });
       }
     }
+        if (interaction.isButton()) {
 
-    if (interaction.isButton()) {
-      if (interaction.customId === 'offer_clubs_prev' || interaction.customId === 'offer_clubs_next') {
+      if (
+        interaction.customId === 'offer_clubs_prev' ||
+        interaction.customId === 'offer_clubs_next'
+      ) {
+
         const draft = offerDrafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1023,7 +1135,10 @@ draft.targetApplicationId = targetApplication?.id || null;
           });
         }
 
-        const totalPages = Math.max(1, Math.ceil(draft.clubs.length / CLUBS_PER_PAGE));
+        const totalPages = Math.max(
+          1,
+          Math.ceil(draft.clubs.length / CLUBS_PER_PAGE)
+        );
 
         if (interaction.customId === 'offer_clubs_prev') {
           draft.clubPage = Math.max(0, draft.clubPage - 1);
@@ -1034,7 +1149,11 @@ draft.targetApplicationId = targetApplication?.id || null;
         return updateOfferDraftMessage(interaction, draft);
       }
 
-      if (interaction.customId === 'offer_players_prev' || interaction.customId === 'offer_players_next') {
+      if (
+        interaction.customId === 'offer_players_prev' ||
+        interaction.customId === 'offer_players_next'
+      ) {
+
         const draft = offerDrafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1044,7 +1163,10 @@ draft.targetApplicationId = targetApplication?.id || null;
           });
         }
 
-        const totalPages = Math.max(1, Math.ceil(draft.players.length / PLAYERS_PER_PAGE));
+        const totalPages = Math.max(
+          1,
+          Math.ceil(draft.players.length / PLAYERS_PER_PAGE)
+        );
 
         if (interaction.customId === 'offer_players_prev') {
           draft.playerPage = Math.max(0, draft.playerPage - 1);
@@ -1056,6 +1178,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       }
 
       if (interaction.customId === 'offer_cancel') {
+
         offerDrafts.delete(interaction.user.id);
 
         return interaction.update({
@@ -1066,6 +1189,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       }
 
       if (interaction.customId === 'offer_confirm') {
+
         const draft = offerDrafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1077,6 +1201,7 @@ draft.targetApplicationId = targetApplication?.id || null;
 
         if (
           !draft.targetClubId ||
+          !draft.targetApplicationId ||
           !draft.selectedApplicationPlayerId ||
           !draft.playerDiscordId ||
           !draft.contractYears
@@ -1096,27 +1221,57 @@ draft.targetApplicationId = targetApplication?.id || null;
           .limit(1)
           .maybeSingle();
 
-        const fromClubName = captainApplication?.clubs?.name || 'Club del capitano';
+        if (!captainApplication) {
+          return interaction.reply({
+            content: '❌ Non trovo una squadra approvata collegata a questo capitano.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (captainApplication.id === draft.targetApplicationId) {
+          return interaction.reply({
+            content: '❌ Non puoi fare offerte ai giocatori della tua stessa squadra.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const fromClubName =
+          captainApplication.clubs?.name || 'Club del capitano';
+
+        const { data: existingOffer } = await supabase
+          .from('transfer_offers')
+          .select('id')
+          .eq('player_discord_id', draft.playerDiscordId)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (existingOffer) {
+          return interaction.reply({
+            content: '❌ Questo giocatore ha già una offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
 
         const { data: offer, error: offerError } = await supabase
           .from('transfer_offers')
           .insert({
-  from_club_name: fromClubName,
-  target_club_name: draft.targetClubName,
-  captain_discord_id: interaction.user.id,
+            from_club_name: fromClubName,
+            target_club_name: draft.targetClubName,
 
-  player_discord_id: draft.playerDiscordId,
-  player_platform: draft.playerPlatform,
-  player_platform_id: draft.playerPlatformId,
+            captain_discord_id: interaction.user.id,
 
-  contract_years: Number(draft.contractYears),
+            player_discord_id: draft.playerDiscordId,
+            player_platform: draft.playerPlatform,
+            player_platform_id: draft.playerPlatformId,
 
-  from_application_id: captainApplication?.id || null,
-  target_application_id: draft.targetApplicationId,
-  application_player_id: draft.selectedApplicationPlayerId,
+            contract_years: Number(draft.contractYears),
 
-  status: 'pending'
-})
+            from_application_id: captainApplication.id,
+            target_application_id: draft.targetApplicationId,
+            application_player_id: draft.selectedApplicationPlayerId,
+
+            status: 'pending'
+          })
           .select()
           .single();
 
@@ -1155,10 +1310,12 @@ draft.targetApplicationId = targetApplication?.id || null;
           components: []
         });
       }
-            if (
+
+      if (
         interaction.customId.startsWith('offer_accept_') ||
         interaction.customId.startsWith('offer_reject_')
       ) {
+
         const accepted = interaction.customId.startsWith('offer_accept_');
         const offerPlayerId = interaction.customId.split('_').pop();
 
@@ -1200,8 +1357,8 @@ draft.targetApplicationId = targetApplication?.id || null;
           components: []
         });
       }
+            if (interaction.customId === 'start_registration') {
 
-      if (interaction.customId === 'start_registration') {
         if (interaction.channelId !== ALLOWED_REGISTRATION_CHANNEL_ID) {
           return interaction.reply({
             content: '❌ Puoi iniziare l’iscrizione solo nel canale ufficiale.',
@@ -1209,13 +1366,12 @@ draft.targetApplicationId = targetApplication?.id || null;
           });
         }
 
-        const { player: captainPlayer } = await getOrCreateUserAndPlayer(
-          interaction.user
-        );
+        const { player: captainPlayer } =
+          await getOrCreateUserAndPlayer(interaction.user);
 
         if (!captainPlayer) {
           return interaction.reply({
-            content: '❌ Devi prima registrarti con `/registrati` prima di iscrivere una squadra.',
+            content: '❌ Devi prima registrarti con `/registrati`.',
             flags: MessageFlags.Ephemeral
           });
         }
@@ -1248,6 +1404,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       }
 
       if (interaction.customId === 'add_player') {
+
         const draft = drafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1280,7 +1437,7 @@ draft.targetApplicationId = targetApplication?.id || null;
         const discordId = new TextInputBuilder()
           .setCustomId('discord_id')
           .setLabel('ID DISCORD')
-          .setPlaceholder('Modalità sviluppatore ON → tasto destro utente → Copia ID')
+          .setPlaceholder('Copia ID Discord del giocatore')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -1294,7 +1451,7 @@ draft.targetApplicationId = targetApplication?.id || null;
         const platform = new TextInputBuilder()
           .setCustomId('platform')
           .setLabel('CONSOLE')
-          .setPlaceholder('Scrivi PS5, XBOX oppure PC')
+          .setPlaceholder('PS5, XBOX oppure PC')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
@@ -1327,8 +1484,12 @@ draft.targetApplicationId = targetApplication?.id || null;
         interaction.customId.startsWith('player_accept_') ||
         interaction.customId.startsWith('player_reject_')
       ) {
-        const accepted = interaction.customId.startsWith('player_accept_');
-        const applicationPlayerId = interaction.customId.split('_').pop();
+
+        const accepted =
+          interaction.customId.startsWith('player_accept_');
+
+        const applicationPlayerId =
+          interaction.customId.split('_').pop();
 
         const { data: appPlayer } = await supabase
           .from('club_application_players')
@@ -1371,8 +1532,12 @@ draft.targetApplicationId = targetApplication?.id || null;
         interaction.customId.startsWith('staff_accept_') ||
         interaction.customId.startsWith('staff_reject_')
       ) {
-        const accepted = interaction.customId.startsWith('staff_accept_');
-        const applicationId = interaction.customId.split('_').pop();
+
+        const accepted =
+          interaction.customId.startsWith('staff_accept_');
+
+        const applicationId =
+          interaction.customId.split('_').pop();
 
         const { data: app } = await supabase
           .from('club_applications')
@@ -1401,9 +1566,8 @@ draft.targetApplicationId = targetApplication?.id || null;
           .eq('id', app.club_id);
 
         if (accepted) {
-          const guild = interaction.guild;
 
-          const captainMember = await guild.members
+          const captainMember = await interaction.guild.members
             .fetch(app.captain_discord_id)
             .catch(() => null);
 
@@ -1411,8 +1575,11 @@ draft.targetApplicationId = targetApplication?.id || null;
             await captainMember.roles.add(CAPTAIN_ROLE_ID);
           }
 
-          for (const player of players.filter(p => p.response_status === 'accepted')) {
-            const member = await guild.members
+          for (const player of players.filter(
+            p => p.response_status === 'accepted'
+          )) {
+
+            const member = await interaction.guild.members
               .fetch(player.discord_id)
               .catch(() => null);
 
@@ -1424,17 +1591,17 @@ draft.targetApplicationId = targetApplication?.id || null;
 
         return interaction.update({
           content: accepted
-            ? '✅ Iscrizione squadra approvata dallo staff.'
-            : '❌ Iscrizione squadra rifiutata dallo staff.',
+            ? '✅ Iscrizione approvata.'
+            : '❌ Iscrizione rifiutata.',
           embeds: interaction.message.embeds,
           components: []
         });
       }
     }
-
-    if (interaction.isModalSubmit()) {
+        if (interaction.isModalSubmit()) {
 
       if (interaction.customId === 'team_modal') {
+
         const draft = drafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1451,8 +1618,7 @@ draft.targetApplicationId = targetApplication?.id || null;
         await interaction.reply({
           content:
             '📎 Ora carica il **logo PNG** della squadra.\n\n' +
-            'Clicca il **+** in basso a sinistra, scegli il file `.png` e invia il messaggio.\n' +
-            'Hai 2 minuti di tempo.',
+            'Invia il file `.png` in questo canale entro 2 minuti.',
           flags: MessageFlags.Ephemeral
         });
 
@@ -1461,6 +1627,7 @@ draft.targetApplicationId = targetApplication?.id || null;
           message.attachments.size > 0;
 
         try {
+
           const collected = await interaction.channel.awaitMessages({
             filter,
             max: 1,
@@ -1472,10 +1639,11 @@ draft.targetApplicationId = targetApplication?.id || null;
           const file = message.attachments.first();
 
           if (!file.name.toLowerCase().endsWith('.png')) {
+
             drafts.delete(interaction.user.id);
 
             return interaction.followUp({
-              content: '❌ Il logo deve essere in formato PNG. Ricomincia l’iscrizione.',
+              content: '❌ Il logo deve essere PNG. Ricomincia.',
               flags: MessageFlags.Ephemeral
             });
           }
@@ -1485,7 +1653,7 @@ draft.targetApplicationId = targetApplication?.id || null;
           return interaction.followUp({
             content:
               '✅ Logo ricevuto.\n\n' +
-              'Ora seleziona i **giocatori in rosa**.',
+              'Ora seleziona quanti giocatori vuoi inserire.',
             components: [
               buildRosterSelect()
             ],
@@ -1493,6 +1661,7 @@ draft.targetApplicationId = targetApplication?.id || null;
           });
 
         } catch {
+
           drafts.delete(interaction.user.id);
 
           return interaction.followUp({
@@ -1503,6 +1672,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       }
 
       if (interaction.customId === 'player_modal') {
+
         const draft = drafts.get(interaction.user.id);
 
         if (!draft) {
@@ -1517,7 +1687,9 @@ draft.targetApplicationId = targetApplication?.id || null;
           .trim();
 
         const age = Number(
-          interaction.fields.getTextInputValue('age').trim()
+          interaction.fields
+            .getTextInputValue('age')
+            .trim()
         );
 
         const platform = interaction.fields
@@ -1530,7 +1702,9 @@ draft.targetApplicationId = targetApplication?.id || null;
           .trim();
 
         const contractYears = Number(
-          interaction.fields.getTextInputValue('contract_years').trim()
+          interaction.fields
+            .getTextInputValue('contract_years')
+            .trim()
         );
 
         if (!/^\d{15,25}$/.test(discordId)) {
@@ -1546,7 +1720,7 @@ draft.targetApplicationId = targetApplication?.id || null;
 
         if (!memberExists) {
           return interaction.reply({
-            content: '❌ Questo ID Discord non esiste oppure il giocatore non è presente nel server.',
+            content: '❌ Il giocatore non è nel server.',
             flags: MessageFlags.Ephemeral
           });
         }
@@ -1560,14 +1734,15 @@ draft.targetApplicationId = targetApplication?.id || null;
 
         if (existingPlayer) {
           return interaction.reply({
-            content: '❌ Questo giocatore risulta già registrato oppure ha già una richiesta attiva con un altro club.',
+            content:
+              '❌ Questo giocatore è già registrato o ha una richiesta attiva.',
             flags: MessageFlags.Ephemeral
           });
         }
 
-        if (draft.players.some(player => player.discord_id === discordId)) {
+        if (draft.players.some(p => p.discord_id === discordId)) {
           return interaction.reply({
-            content: '❌ Questo giocatore è già stato inserito.',
+            content: '❌ Giocatore già inserito.',
             flags: MessageFlags.Ephemeral
           });
         }
@@ -1581,21 +1756,21 @@ draft.targetApplicationId = targetApplication?.id || null;
 
         if (!['PS5', 'XBOX', 'PC'].includes(platform)) {
           return interaction.reply({
-            content: '❌ Console non valida. Scrivi solo PS5, XBOX oppure PC.',
+            content: '❌ Console valida: PS5, XBOX oppure PC.',
             flags: MessageFlags.Ephemeral
           });
         }
 
         if (!platformId || platformId.length < 2) {
           return interaction.reply({
-            content: '❌ ID PS5 / XBOX / PC non valido.',
+            content: '❌ ID console non valido.',
             flags: MessageFlags.Ephemeral
           });
         }
 
         if (![1, 2].includes(contractYears)) {
           return interaction.reply({
-            content: '❌ Il contratto può essere solo di 1 o 2 anni.',
+            content: '❌ Contratto valido: 1 o 2 anni.',
             flags: MessageFlags.Ephemeral
           });
         }
@@ -1613,8 +1788,7 @@ draft.targetApplicationId = targetApplication?.id || null;
           return interaction.reply({
             content:
               `✅ Giocatore inserito.\n\n` +
-              `Progresso: **${draft.players.length}/${draft.rosterSize}**\n` +
-              `Mancano **${draft.rosterSize - draft.players.length}** giocatori.`,
+              `Progresso: **${draft.players.length}/${draft.rosterSize}**`,
             components: [
               buildAddPlayerButton(draft)
             ],
@@ -1629,13 +1803,13 @@ draft.targetApplicationId = targetApplication?.id || null;
         await finalizeApplication(interaction, draft);
 
         return interaction.editReply(
-          '✅ Iscrizione squadra inviata correttamente allo staff.\n\n' +
-          'I giocatori riceveranno la conferma in privato.'
+          '✅ Iscrizione inviata correttamente allo staff.'
         );
       }
     }
 
   } catch (error) {
+
     console.error(error);
 
     if (interaction.deferred || interaction.replied) {
@@ -1650,6 +1824,7 @@ draft.targetApplicationId = targetApplication?.id || null;
 });
 
 client.on('messageCreate', async message => {
+
   if (message.author.bot) return;
 
   if (message.channelId === OFFERS_CHANNEL_ID) {
