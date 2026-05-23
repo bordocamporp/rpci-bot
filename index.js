@@ -871,6 +871,7 @@ client.on('interactionCreate', async interaction => {
           clubPage: 0,
           targetClubId: null,
           targetClubName: null,
+          targetApplicationId: null,
           players: [],
           playerPage: 0,
           selectedApplicationPlayerId: null,
