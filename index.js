@@ -913,6 +913,16 @@ client.on('interactionCreate', async interaction => {
         }
 
         const players = await getClubRoster(clubId);
+        const { data: targetApplication } = await supabase
+  .from('club_applications')
+  .select('id')
+  .eq('club_id', clubId)
+  .eq('status', 'approved')
+  .order('created_at', { ascending: false })
+  .limit(1)
+  .maybeSingle();
+
+draft.targetApplicationId = targetApplication?.id || null;
 
         if (players.length === 0) {
           return interaction.reply({
