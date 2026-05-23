@@ -1090,15 +1090,22 @@ client.on('interactionCreate', async interaction => {
         const { data: offer, error: offerError } = await supabase
           .from('transfer_offers')
           .insert({
-            from_club_name: fromClubName,
-            target_club_name: draft.targetClubName,
-            captain_discord_id: interaction.user.id,
-            player_discord_id: draft.playerDiscordId,
-            player_platform: draft.playerPlatform,
-            player_platform_id: draft.playerPlatformId,
-            contract_years: Number(draft.contractYears),
-            status: 'pending'
-          })
+  from_club_name: fromClubName,
+  target_club_name: draft.targetClubName,
+  captain_discord_id: interaction.user.id,
+
+  player_discord_id: draft.playerDiscordId,
+  player_platform: draft.playerPlatform,
+  player_platform_id: draft.playerPlatformId,
+
+  contract_years: Number(draft.contractYears),
+
+  from_application_id: captainApplication?.id || null,
+  target_application_id: draft.targetApplicationId,
+  application_player_id: draft.selectedApplicationPlayerId,
+
+  status: 'pending'
+})
           .select()
           .single();
 
