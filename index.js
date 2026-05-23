@@ -27,7 +27,11 @@ const PLAYER_ROLE_ID = '1507740330299228161';
 const OFFERS_CHANNEL_ID = '1507741111118987375';
 const TRANSFER_LOG_CHANNEL_ID = '1507741237900214332';
 
+const CLUBS_PER_PAGE = 25;
+const PLAYERS_PER_PAGE = 25;
+
 const drafts = new Map();
+const offerDrafts = new Map();
 
 const client = new Client({
   intents: [
@@ -67,32 +71,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('offerta')
-    .setDescription('Invia una offerta di trasferimento a uno o più giocatori')
-    .addStringOption(option =>
-      option
-        .setName('club')
-        .setDescription('Nome del club che fa l’offerta')
-        .setRequired(true)
-        .setAutocomplete(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('giocatori')
-        .setDescription('ID Discord o mention dei giocatori, separati da spazio o virgola')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('contratto')
-        .setDescription('Durata contratto / dettagli offerta')
-        .setRequired(true)
-    )
-    .addStringOption(option =>
-      option
-        .setName('note')
-        .setDescription('Note aggiuntive')
-        .setRequired(false)
-    )
+    .setDescription('Crea una offerta di trasferimento')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -118,32 +97,6 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 client.once('ready', () => {
   console.log(`✅ Bot online come ${client.user.tag}`);
 });
-
-function extractDiscordIds(input) {
-  return [...new Set((input.match(/\d{15,25}/g) || []))];
-}
-
-async function getClubChoices(focusedValue) {
-  let query = supabase
-    .from('clubs')
-    .select('id, name')
-    .eq('status', 'approved')
-    .order('name', { ascending: true })
-    .limit(25);
-
-  if (focusedValue && focusedValue.trim().length > 0) {
-    query = query.ilike('name', `%${focusedValue.trim()}%`);
-  }
-
-  const { data, error } = await query;
-
-  if (error || !data) return [];
-
-  return data.slice(0, 25).map(club => ({
-    name: club.name,
-    value: club.name
-  }));
-}
 
 async function getOrCreateUserAndPlayer(discordUser, eaId = null, ruolo = null) {
   let { data: user } = await supabase
@@ -447,22 +400,251 @@ async function finalizeApplication(interaction, draft) {
 
   drafts.delete(interaction.user.id);
 }
+
+async function getApprovedClubs() {
+  const { data, error } = await supabase
+    .from('clubs')
+    .select('id, name, short_name, logo_url, status')
+    .eq('status', 'approved')
+    .order('name', { ascending: true });
+
+  if (error || !data) return [];
+  return data;
+}
+
+async function getClubRoster(clubId) {
+  const { data: applications, error: appError } = await supabase
+    .from('club_applications')
+    .select('id, club_id, status')
+    .eq('club_id', clubId)
+    .eq('status', 'approved')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (appError || !applications || applications.length === 0) return [];
+
+  const applicationId = applications[0].id;
+
+  const { data: players, error: playersError } = await supabase
+    .from('club_application_players')
+    .select('*')
+    .eq('application_id', applicationId)
+    .eq('response_status', 'accepted')
+    .order('created_at', { ascending: true });
+
+  if (playersError || !players) return [];
+  return players;
+}
+
 function buildOfferEmbed(offer) {
   return new EmbedBuilder()
     .setTitle('📨 Nuova offerta di trasferimento')
     .setColor(0x3498db)
     .addFields(
-      { name: 'Club', value: offer.clubName },
+      { name: 'Club offerente', value: offer.fromClubName },
+      { name: 'Club del giocatore', value: offer.targetClubName },
       { name: 'Capitano', value: `<@${offer.captainDiscordId}>` },
-      { name: 'Giocatori', value: offer.playerIds.map(id => `<@${id}>`).join('\n') },
-      { name: 'Contratto', value: offer.contract },
-      { name: 'Note', value: offer.notes || 'Nessuna nota' },
+      { name: 'Giocatore', value: `${offer.platformId} (${offer.platform})` },
+      { name: 'Contratto', value: `${offer.contractYears} anno/i` },
       {
         name: 'Scadenza risposta',
-        value: '24 ore. Se un giocatore non risponde, l’offerta viene accettata automaticamente.'
+        value: '24 ore. Se il giocatore non risponde, l’offerta viene accettata automaticamente.'
       }
     )
     .setTimestamp();
+}
+
+function buildOfferPanelEmbed(draft) {
+  return new EmbedBuilder()
+    .setTitle('💼 Crea offerta di trasferimento')
+    .setColor(0xd4af37)
+    .setDescription(
+      'Segui i passaggi:\n\n' +
+      '1. Seleziona la squadra partecipante\n' +
+      '2. Seleziona il giocatore dalla rosa\n' +
+      '3. Seleziona gli anni di contratto\n' +
+      '4. Conferma l’offerta'
+    )
+    .addFields(
+      {
+        name: 'Squadra selezionata',
+        value: draft.targetClubName || 'Non selezionata'
+      },
+      {
+        name: 'Giocatore selezionato',
+        value: draft.playerPlatformId
+          ? `${draft.playerPlatformId} (${draft.playerPlatform})`
+          : 'Non selezionato'
+      },
+      {
+        name: 'Contratto',
+        value: draft.contractYears
+          ? `${draft.contractYears} anno/i`
+          : 'Non selezionato'
+      }
+    )
+    .setFooter({
+      text: 'RPCI • Mercato trasferimenti'
+    })
+    .setTimestamp();
+}
+function buildClubSelect(clubs, page = 0) {
+  const start = page * CLUBS_PER_PAGE;
+  const pageClubs = clubs.slice(start, start + CLUBS_PER_PAGE);
+
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('offer_club_select')
+      .setPlaceholder('Seleziona squadra partecipante')
+      .addOptions(
+        pageClubs.map(club => ({
+          label: club.name.slice(0, 100),
+          description: club.short_name ? `Tag: ${club.short_name}` : 'Squadra iscritta',
+          value: club.id
+        }))
+      )
+  );
+}
+
+function buildClubPaginationButtons(page, totalPages) {
+  const prev = new ButtonBuilder()
+    .setCustomId('offer_clubs_prev')
+    .setLabel('⬅️')
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page <= 0);
+
+  const next = new ButtonBuilder()
+    .setCustomId('offer_clubs_next')
+    .setLabel('➡️')
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page >= totalPages - 1);
+
+  return new ActionRowBuilder().addComponents(prev, next);
+}
+
+function buildPlayersSelect(players, page = 0) {
+  const start = page * PLAYERS_PER_PAGE;
+  const pagePlayers = players.slice(start, start + PLAYERS_PER_PAGE);
+
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('offer_player_select')
+      .setPlaceholder('Seleziona giocatore dalla rosa')
+      .addOptions(
+        pagePlayers.map(player => ({
+          label: `${player.platform_id || 'ID console non disponibile'}`.slice(0, 100),
+          description: `${player.platform || 'Console'} • Contratto attuale: ${player.contract_years || 'N/D'} anno/i`.slice(0, 100),
+          value: player.id
+        }))
+      )
+  );
+}
+
+function buildPlayersPaginationButtons(page, totalPages) {
+  const prev = new ButtonBuilder()
+    .setCustomId('offer_players_prev')
+    .setLabel('⬅️')
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page <= 0);
+
+  const next = new ButtonBuilder()
+    .setCustomId('offer_players_next')
+    .setLabel('➡️')
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(page >= totalPages - 1);
+
+  return new ActionRowBuilder().addComponents(prev, next);
+}
+
+function buildContractSelect() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('offer_contract_select')
+      .setPlaceholder('Seleziona anni di contratto')
+      .addOptions([
+        {
+          label: '1 anno',
+          value: '1',
+          description: 'Contratto di 1 anno'
+        },
+        {
+          label: '2 anni',
+          value: '2',
+          description: 'Contratto di 2 anni'
+        },
+        {
+          label: '3 anni',
+          value: '3',
+          description: 'Contratto di 3 anni'
+        }
+      ])
+  );
+}
+
+function buildConfirmOfferButton(disabled = false) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('offer_confirm')
+      .setLabel('INVIA OFFERTA')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(disabled),
+
+    new ButtonBuilder()
+      .setCustomId('offer_cancel')
+      .setLabel('ANNULLA')
+      .setStyle(ButtonStyle.Danger)
+  );
+}
+
+async function buildOfferComponents(draft) {
+  const components = [];
+
+  const clubs = draft.clubs || [];
+  const clubTotalPages = Math.max(1, Math.ceil(clubs.length / CLUBS_PER_PAGE));
+
+  if (!draft.targetClubId) {
+    if (clubs.length > 0) {
+      components.push(buildClubSelect(clubs, draft.clubPage || 0));
+
+      if (clubTotalPages > 1) {
+        components.push(buildClubPaginationButtons(draft.clubPage || 0, clubTotalPages));
+      }
+    }
+
+    return components;
+  }
+
+  const players = draft.players || [];
+  const playerTotalPages = Math.max(1, Math.ceil(players.length / PLAYERS_PER_PAGE));
+
+  if (!draft.selectedApplicationPlayerId) {
+    if (players.length > 0) {
+      components.push(buildPlayersSelect(players, draft.playerPage || 0));
+
+      if (playerTotalPages > 1) {
+        components.push(buildPlayersPaginationButtons(draft.playerPage || 0, playerTotalPages));
+      }
+    }
+
+    return components;
+  }
+
+  if (!draft.contractYears) {
+    components.push(buildContractSelect());
+    return components;
+  }
+
+  components.push(buildConfirmOfferButton(false));
+  return components;
+}
+
+async function updateOfferDraftMessage(interaction, draft) {
+  const components = await buildOfferComponents(draft);
+
+  return interaction.update({
+    embeds: [buildOfferPanelEmbed(draft)],
+    components
+  });
 }
 
 async function sendTransferLog(offer, statusText) {
@@ -475,12 +657,30 @@ async function sendTransferLog(offer, statusText) {
         .setTitle('✅ Trattativa conclusa')
         .setColor(0x2ecc71)
         .addFields(
-          { name: 'Club', value: offer.clubName },
-          { name: 'Capitano', value: `<@${offer.captainDiscordId}>` },
-          { name: 'Giocatori', value: offer.playerIds.map(id => `<@${id}>`).join('\n') },
-          { name: 'Contratto', value: offer.contract },
-          { name: 'Note', value: offer.notes || 'Nessuna nota' },
-          { name: 'Stato', value: statusText }
+          {
+            name: 'Club offerente',
+            value: offer.fromClubName
+          },
+          {
+            name: 'Club del giocatore',
+            value: offer.targetClubName
+          },
+          {
+            name: 'Capitano',
+            value: `<@${offer.captainDiscordId}>`
+          },
+          {
+            name: 'Giocatore',
+            value: `${offer.platformId} (${offer.platform})`
+          },
+          {
+            name: 'Contratto',
+            value: `${offer.contractYears} anno/i`
+          },
+          {
+            name: 'Stato',
+            value: statusText
+          }
         )
         .setTimestamp()
     ]
@@ -529,12 +729,13 @@ async function finalizeOfferIfReady(offerId, forced = false) {
   }
 
   const finalOffer = {
-    id: offer.id,
-    clubName: offer.club_name,
+    fromClubName: offer.from_club_name,
+    targetClubName: offer.target_club_name,
     captainDiscordId: offer.captain_discord_id,
-    playerIds: offer.player_ids,
-    contract: offer.contract,
-    notes: offer.notes
+    playerDiscordId: offer.player_discord_id,
+    platform: offer.player_platform,
+    platformId: offer.player_platform_id,
+    contractYears: offer.contract_years
   };
 
   await supabase
@@ -547,30 +748,28 @@ async function finalizeOfferIfReady(offerId, forced = false) {
 
   await sendTransferLog(
     finalOffer,
-    forced ? 'Accettata automaticamente dopo 24 ore.' : 'Accettata da tutti i giocatori.'
+    forced ? 'Accettata automaticamente dopo 24 ore.' : 'Accettata dal giocatore.'
   );
 }
 
-async function sendOfferToPlayers(offer, playerRows) {
-  for (const row of playerRows) {
-    const user = await client.users.fetch(row.discord_id).catch(() => null);
-    if (!user) continue;
+async function sendOfferToPlayer(offer, offerPlayerRow) {
+  const user = await client.users.fetch(offer.playerDiscordId).catch(() => null);
+  if (!user) return;
 
-    const accept = new ButtonBuilder()
-      .setCustomId(`offer_accept_${row.id}`)
-      .setLabel('ACCETTA')
-      .setStyle(ButtonStyle.Success);
+  const accept = new ButtonBuilder()
+    .setCustomId(`offer_accept_${offerPlayerRow.id}`)
+    .setLabel('ACCETTA')
+    .setStyle(ButtonStyle.Success);
 
-    const reject = new ButtonBuilder()
-      .setCustomId(`offer_reject_${row.id}`)
-      .setLabel('RIFIUTA')
-      .setStyle(ButtonStyle.Danger);
+  const reject = new ButtonBuilder()
+    .setCustomId(`offer_reject_${offerPlayerRow.id}`)
+    .setLabel('RIFIUTA')
+    .setStyle(ButtonStyle.Danger);
 
-    await user.send({
-      embeds: [buildOfferEmbed(offer)],
-      components: [new ActionRowBuilder().addComponents(accept, reject)]
-    }).catch(() => null);
-  }
+  await user.send({
+    embeds: [buildOfferEmbed(offer)],
+    components: [new ActionRowBuilder().addComponents(accept, reject)]
+  }).catch(() => null);
 
   setTimeout(() => {
     finalizeOfferIfReady(offer.id, true).catch(console.error);
@@ -579,14 +778,6 @@ async function sendOfferToPlayers(offer, playerRows) {
 
 client.on('interactionCreate', async interaction => {
   try {
-    if (interaction.isAutocomplete()) {
-      if (interaction.commandName === 'offerta') {
-        const focusedValue = interaction.options.getFocused();
-        const choices = await getClubChoices(focusedValue);
-        return interaction.respond(choices);
-      }
-    }
-
     if (interaction.isChatInputCommand()) {
 
       if (interaction.commandName === 'registrati') {
@@ -661,55 +852,247 @@ client.on('interactionCreate', async interaction => {
           });
         }
 
-        const clubName = interaction.options.getString('club').trim();
-        const playerIds = extractDiscordIds(
-          interaction.options.getString('giocatori')
-        );
-        const contract = interaction.options.getString('contratto').trim();
-        const notes = interaction.options.getString('note')?.trim() || null;
+        const clubs = await getApprovedClubs();
 
-        const { data: selectedClub } = await supabase
-          .from('clubs')
-          .select('*')
-          .eq('name', clubName)
+        if (clubs.length === 0) {
+          return interaction.reply({
+            content: '❌ Non ci sono squadre approvate disponibili.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        offerDrafts.set(interaction.user.id, {
+          captainDiscordId: interaction.user.id,
+          clubs,
+          clubPage: 0,
+          targetClubId: null,
+          targetClubName: null,
+          players: [],
+          playerPage: 0,
+          selectedApplicationPlayerId: null,
+          playerDiscordId: null,
+          playerPlatform: null,
+          playerPlatformId: null,
+          contractYears: null
+        });
+
+        const draft = offerDrafts.get(interaction.user.id);
+
+        return interaction.reply({
+          embeds: [buildOfferPanelEmbed(draft)],
+          components: await buildOfferComponents(draft),
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === 'offer_club_select') {
+        const draft = offerDrafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const clubId = interaction.values[0];
+        const club = draft.clubs.find(c => c.id === clubId);
+
+        if (!club) {
+          return interaction.reply({
+            content: '❌ Squadra non valida.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const players = await getClubRoster(clubId);
+
+        if (players.length === 0) {
+          return interaction.reply({
+            content: '❌ Questa squadra non ha giocatori accettati in rosa.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        draft.targetClubId = club.id;
+        draft.targetClubName = club.name;
+        draft.players = players;
+        draft.playerPage = 0;
+        draft.selectedApplicationPlayerId = null;
+        draft.playerDiscordId = null;
+        draft.playerPlatform = null;
+        draft.playerPlatformId = null;
+        draft.contractYears = null;
+
+        return updateOfferDraftMessage(interaction, draft);
+      }
+
+      if (interaction.customId === 'offer_player_select') {
+        const draft = offerDrafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const selectedId = interaction.values[0];
+        const player = draft.players.find(p => p.id === selectedId);
+
+        if (!player) {
+          return interaction.reply({
+            content: '❌ Giocatore non valido.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        draft.selectedApplicationPlayerId = player.id;
+        draft.playerDiscordId = player.discord_id;
+        draft.playerPlatform = player.platform || 'N/D';
+        draft.playerPlatformId = player.platform_id || 'N/D';
+        draft.contractYears = null;
+
+        return updateOfferDraftMessage(interaction, draft);
+      }
+
+      if (interaction.customId === 'offer_contract_select') {
+        const draft = offerDrafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        draft.contractYears = interaction.values[0];
+
+        return updateOfferDraftMessage(interaction, draft);
+      }
+
+      if (interaction.customId === 'roster_select') {
+        const draft = drafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna iscrizione in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        draft.rosterSize = Number(interaction.values[0]);
+        draft.players = [];
+
+        return interaction.update({
+          content:
+            `✅ Hai selezionato **${draft.rosterSize} giocatori in rosa**.\n\n` +
+            'Premi il pulsante qui sotto per inserire il primo giocatore.',
+          components: [
+            buildAddPlayerButton(draft)
+          ]
+        });
+      }
+    }
+
+    if (interaction.isButton()) {
+      if (interaction.customId === 'offer_clubs_prev' || interaction.customId === 'offer_clubs_next') {
+        const draft = offerDrafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const totalPages = Math.max(1, Math.ceil(draft.clubs.length / CLUBS_PER_PAGE));
+
+        if (interaction.customId === 'offer_clubs_prev') {
+          draft.clubPage = Math.max(0, draft.clubPage - 1);
+        } else {
+          draft.clubPage = Math.min(totalPages - 1, draft.clubPage + 1);
+        }
+
+        return updateOfferDraftMessage(interaction, draft);
+      }
+
+      if (interaction.customId === 'offer_players_prev' || interaction.customId === 'offer_players_next') {
+        const draft = offerDrafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const totalPages = Math.max(1, Math.ceil(draft.players.length / PLAYERS_PER_PAGE));
+
+        if (interaction.customId === 'offer_players_prev') {
+          draft.playerPage = Math.max(0, draft.playerPage - 1);
+        } else {
+          draft.playerPage = Math.min(totalPages - 1, draft.playerPage + 1);
+        }
+
+        return updateOfferDraftMessage(interaction, draft);
+      }
+
+      if (interaction.customId === 'offer_cancel') {
+        offerDrafts.delete(interaction.user.id);
+
+        return interaction.update({
+          content: '❌ Offerta annullata.',
+          embeds: [],
+          components: []
+        });
+      }
+
+      if (interaction.customId === 'offer_confirm') {
+        const draft = offerDrafts.get(interaction.user.id);
+
+        if (!draft) {
+          return interaction.reply({
+            content: '❌ Nessuna offerta in corso.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (
+          !draft.targetClubId ||
+          !draft.selectedApplicationPlayerId ||
+          !draft.playerDiscordId ||
+          !draft.contractYears
+        ) {
+          return interaction.reply({
+            content: '❌ Completa tutti i passaggi prima di inviare l’offerta.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const { data: captainApplication } = await supabase
+          .from('club_applications')
+          .select('*, clubs(*)')
+          .eq('captain_discord_id', interaction.user.id)
           .eq('status', 'approved')
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
-        if (!selectedClub) {
-          return interaction.reply({
-            content: '❌ Club non valido. Seleziona un club dal menu a tendina.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        if (playerIds.length === 0) {
-          return interaction.reply({
-            content: '❌ Inserisci almeno un ID Discord o una mention valida.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        for (const playerId of playerIds) {
-          const targetMember = await interaction.guild.members
-            .fetch(playerId)
-            .catch(() => null);
-
-          if (!targetMember) {
-            return interaction.reply({
-              content: `❌ Il giocatore <@${playerId}> non è presente nel server.`,
-              flags: MessageFlags.Ephemeral
-            });
-          }
-        }
+        const fromClubName = captainApplication?.clubs?.name || 'Club del capitano';
 
         const { data: offer, error: offerError } = await supabase
           .from('transfer_offers')
           .insert({
-            club_name: selectedClub.name,
+            from_club_name: fromClubName,
+            target_club_name: draft.targetClubName,
             captain_discord_id: interaction.user.id,
-            player_ids: playerIds,
-            contract,
-            notes,
+            player_discord_id: draft.playerDiscordId,
+            player_platform: draft.playerPlatform,
+            player_platform_id: draft.playerPlatformId,
+            contract_years: Number(draft.contractYears),
             status: 'pending'
           })
           .select()
@@ -717,38 +1100,40 @@ client.on('interactionCreate', async interaction => {
 
         if (offerError) throw offerError;
 
-        const rows = playerIds.map(discordId => ({
-          offer_id: offer.id,
-          discord_id: discordId,
-          response_status: 'pending'
-        }));
-
-        const { data: insertedRows, error: rowsError } = await supabase
+        const { data: offerPlayerRow, error: rowError } = await supabase
           .from('transfer_offer_players')
-          .insert(rows)
-          .select();
+          .insert({
+            offer_id: offer.id,
+            discord_id: draft.playerDiscordId,
+            response_status: 'pending'
+          })
+          .select()
+          .single();
 
-        if (rowsError) throw rowsError;
+        if (rowError) throw rowError;
 
-        await sendOfferToPlayers({
+        await sendOfferToPlayer({
           id: offer.id,
-          clubName: selectedClub.name,
+          fromClubName,
+          targetClubName: draft.targetClubName,
           captainDiscordId: interaction.user.id,
-          playerIds,
-          contract,
-          notes
-        }, insertedRows);
+          playerDiscordId: draft.playerDiscordId,
+          platform: draft.playerPlatform,
+          platformId: draft.playerPlatformId,
+          contractYears: draft.contractYears
+        }, offerPlayerRow);
 
-        return interaction.reply({
-          content: '✅ Offerta inviata ai giocatori. La trattativa si chiude solo se tutti accettano o automaticamente dopo 24h senza risposta.',
-          flags: MessageFlags.Ephemeral
+        offerDrafts.delete(interaction.user.id);
+
+        return interaction.update({
+          content:
+            '✅ Offerta inviata correttamente al giocatore.\n\n' +
+            'La trattativa si concluderà quando il giocatore accetta/rifiuta oppure automaticamente dopo 24h senza risposta.',
+          embeds: [],
+          components: []
         });
       }
-    }
-
-    if (interaction.isButton()) {
-
-      if (
+            if (
         interaction.customId.startsWith('offer_accept_') ||
         interaction.customId.startsWith('offer_reject_')
       ) {
@@ -986,6 +1371,13 @@ client.on('interactionCreate', async interaction => {
           })
           .eq('id', applicationId);
 
+        await supabase
+          .from('clubs')
+          .update({
+            status: accepted ? 'approved' : 'rejected'
+          })
+          .eq('id', app.club_id);
+
         if (accepted) {
           const guild = interaction.guild;
 
@@ -1014,31 +1406,6 @@ client.on('interactionCreate', async interaction => {
             : '❌ Iscrizione squadra rifiutata dallo staff.',
           embeds: interaction.message.embeds,
           components: []
-        });
-      }
-    }
-
-    if (interaction.isStringSelectMenu()) {
-      if (interaction.customId === 'roster_select') {
-        const draft = drafts.get(interaction.user.id);
-
-        if (!draft) {
-          return interaction.reply({
-            content: '❌ Nessuna iscrizione in corso.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        draft.rosterSize = Number(interaction.values[0]);
-        draft.players = [];
-
-        return interaction.update({
-          content:
-            `✅ Hai selezionato **${draft.rosterSize} giocatori in rosa**.\n\n` +
-            'Premi il pulsante qui sotto per inserire il primo giocatore.',
-          components: [
-            buildAddPlayerButton(draft)
-          ]
         });
       }
     }
