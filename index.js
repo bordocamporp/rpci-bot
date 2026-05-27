@@ -4254,6 +4254,15 @@ if (interaction.customId === 'player_search_create') {
       }
 
       if (interaction.customId === 'start_registration') {
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+
+        if (!member?.roles.cache.has(CAPTAIN_ROLE_ID)) {
+          return interaction.reply({
+            content: '❌ Devi avere il ruolo **Capitano RPCI** per iscrivere una squadra.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
         if (interaction.channelId !== ALLOWED_REGISTRATION_CHANNEL_ID) {
           return interaction.reply({
             content: '❌ Puoi iniziare l’iscrizione solo nel canale ufficiale.',
@@ -4267,7 +4276,7 @@ if (interaction.customId === 'player_search_create') {
 
         if (!captainPlayer) {
           return interaction.reply({
-            content: '❌ Devi prima registrarti con `/registrati` prima di iscrivere una squadra.',
+            content: '❌ Devi avere il ruolo **Capitano RPCI** per iscrivere una squadra.',
             flags: MessageFlags.Ephemeral
           });
         }
