@@ -22,6 +22,8 @@ const { createClient } = require('@supabase/supabase-js');
 const ALLOWED_REGISTRATION_CHANNEL_ID = '1507746191528562778';
 const STAFF_CHANNEL_ID = '1507744124512768050';
 const CAPTAIN_ROLE_ID = '1507736309282635817';
+
+const CAPTAIN_PANEL_CHANNEL_ID = '1508166026460663918';
 const PLAYER_ROLE_ID = '1507740330299228161';
 
 const OFFERS_CHANNEL_ID = '1507741111118987375';
@@ -35,7 +37,6 @@ const TRANSFER_REQUEST_CHANNEL_ID = '1507741180212023509';
 const MATCH_REPORTS_CHANNEL_ID = '1507742878313746443';
 const MATCH_RESULTS_CHANNEL_ID = '1507742819920379974';
 const APPEALS_CHANNEL_ID = '1507742936618500116';
-const CAPTAIN_PANEL_CHANNEL_ID = '1508166026460663918';
 const PLAYER_SEARCH_CHANNEL_ID = '1508454065535979591';
 const COMMAND_CHANNEL_ALLOWED_ROLE_IDS = [
   '1398225204404289669',
@@ -104,16 +105,16 @@ const supabase = createClient(
 );
 
 const commands = [
+  new SlashCommandBuilder()
+    .setName('pannello_capitano')
+    .setDescription('Staff: pubblica il pannello per ottenere il ruolo Capitano'),
+
+
   
 
   new SlashCommandBuilder()
     .setName('asta_live')
     .setDescription('Avvia una proposta asta live selezionando club e giocatore'),
-
-
-  new SlashCommandBuilder()
-    .setName('pannello_capitano')
-    .setDescription('Staff: pubblica il pannello per ottenere il ruolo Capitano'),
 
   new SlashCommandBuilder()
     .setName('club_cerca_squadra')
@@ -2602,6 +2603,33 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
       await logBotCommand(interaction);
 
+
+      if (interaction.commandName === 'pannello_capitano') {
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+
+        if (!isStaffMember(member)) {
+          return interaction.reply({
+            content: '❌ Solo lo staff può pubblicare il pannello Capitano.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const channel = await interaction.guild.channels.fetch(CAPTAIN_PANEL_CHANNEL_ID).catch(() => null);
+        if (!channel) {
+          return interaction.reply({
+            content: '❌ Canale DIVENTA CAPITANO non trovato.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        await channel.send(buildCaptainPanel());
+
+        return interaction.reply({
+          content: `✅ Pannello Capitano pubblicato in <#${CAPTAIN_PANEL_CHANNEL_ID}>.`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
       if (interaction.commandName === 'crea_competizione') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
 
@@ -2652,33 +2680,6 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({
           content: '🔨 Seleziona prima il club proprietario del giocatore.',
           components: [buildAuctionClubSelect(clubs)],
-          flags: MessageFlags.Ephemeral
-        });
-      }
-
-
-      if (interaction.commandName === 'pannello_capitano') {
-        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-
-        if (!isStaffMember(member)) {
-          return interaction.reply({
-            content: '❌ Solo lo staff può pubblicare il pannello Capitano.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        const channel = await interaction.guild.channels.fetch(CAPTAIN_PANEL_CHANNEL_ID).catch(() => null);
-        if (!channel) {
-          return interaction.reply({
-            content: '❌ Canale DIVENTA CAPITANO non trovato.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        await channel.send(buildCaptainPanel());
-
-        return interaction.reply({
-          content: `✅ Pannello Capitano pubblicato in <#${CAPTAIN_PANEL_CHANNEL_ID}>.`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -3628,10 +3629,15 @@ draft.targetApplicationId = targetApplication?.id || null;
           });
         }
 
-        await member.roles.add(CAPTAIN_ROLE_ID).catch(error => {
+        try {
+          await member.roles.add(CAPTAIN_ROLE_ID);
+        } catch (error) {
           console.error('Errore assegnazione ruolo Capitano:', error);
-          throw error;
-        });
+          return interaction.reply({
+            content: '❌ Non riesco ad assegnare il ruolo Capitano. Controlla che il ruolo del bot sia sopra il ruolo Capitano.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
 
         return interaction.reply({
           content:
