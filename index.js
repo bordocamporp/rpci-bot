@@ -2607,6 +2607,21 @@ function buildCaptainPanel() {
 }
 
 
+
+function hasCaptainRole(member) {
+  if (!member?.roles?.cache) return false;
+
+  if (typeof CAPTAIN_ROLE_ID !== 'undefined' && member.roles.cache.has(CAPTAIN_ROLE_ID)) {
+    return true;
+  }
+
+  return member.roles.cache.some(role => {
+    const name = String(role.name || '').toLowerCase();
+    return name.includes('capitano') || name.includes('captain');
+  });
+}
+
+
 client.on('interactionCreate', async interaction => {
   try {
     if (interaction.isChatInputCommand()) {
@@ -2661,7 +2676,7 @@ client.on('interactionCreate', async interaction => {
       if (interaction.commandName === 'asta_live') {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 
-        if (!member?.roles.cache.has(CAPTAIN_ROLE_ID) && !isStaffMember(member)) {
+        if (!hasCaptainRole(member) && !isStaffMember(member)) {
           return interaction.reply({
             content: '❌ Solo capitani e staff possono avviare una proposta asta live.',
             flags: MessageFlags.Ephemeral
@@ -2796,7 +2811,7 @@ if (interaction.commandName === 'pannello_cerco_squadra') {
 
         const member = await interaction.guild.members.fetch(interaction.user.id);
 
-        if (!member.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({
             content: '❌ Solo i capitani possono fare offerte.',
             flags: MessageFlags.Ephemeral
@@ -2842,7 +2857,7 @@ if (interaction.commandName === 'pannello_cerco_squadra') {
           return interaction.reply({ content: '❌ Usa /referto solo nel canale referti.', flags: MessageFlags.Ephemeral });
         }
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        if (!member?.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({ content: '❌ Solo i capitani possono compilare i referti.', flags: MessageFlags.Ephemeral });
         }
         const { captainApplication, matches } = await getCaptainOpenMatches(interaction.user.id);
@@ -2874,7 +2889,7 @@ if (interaction.commandName === 'pannello_cerco_squadra') {
 
       if (interaction.commandName === 'budget') {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        if (!member?.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({ content: '❌ Solo i capitani possono vedere il budget squadra.', flags: MessageFlags.Ephemeral });
         }
 
@@ -3032,7 +3047,7 @@ if (interaction.commandName === 'pannello_cerco_squadra') {
         }
 
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        if (!member.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({ content: '❌ Solo i capitani possono depositare contratti.', flags: MessageFlags.Ephemeral });
         }
 
@@ -3115,7 +3130,7 @@ if (interaction.commandName === 'pannello_cerco_squadra') {
         }
 
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        if (!member.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({ content: '❌ Solo i capitani possono usare questo comando.', flags: MessageFlags.Ephemeral });
         }
 
@@ -3725,7 +3740,7 @@ draft.targetApplicationId = targetApplication?.id || null;
       if (interaction.customId === 'club_search_create') {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 
-        if (!member?.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({
             content: '❌ Solo i capitani possono creare annunci club.',
             flags: MessageFlags.Ephemeral
@@ -3889,7 +3904,7 @@ if (interaction.customId === 'player_search_create') {
       if (interaction.customId.startsWith('tr_contact_owner_')) {
         const requestId = interaction.customId.replace('tr_contact_owner_', '');
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        if (!member || !member.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!member || !hasCaptainRole(member)) {
           return interaction.reply({ content: '❌ Solo i capitani possono contattare il capitano del club.', flags: MessageFlags.Ephemeral });
         }
 
@@ -4007,7 +4022,7 @@ if (interaction.customId === 'player_search_create') {
       if (interaction.customId.startsWith('fa_contact_')) {
         const playerDiscordId = interaction.customId.replace('fa_contact_', '');
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        if (!member.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({ content: '❌ Solo i capitani possono contattare i free agent.', flags: MessageFlags.Ephemeral });
         }
 
@@ -4256,7 +4271,7 @@ if (interaction.customId === 'player_search_create') {
       if (interaction.customId === 'start_registration') {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 
-        if (!member?.roles.cache.has(CAPTAIN_ROLE_ID)) {
+        if (!hasCaptainRole(member)) {
           return interaction.reply({
             content: '❌ Devi avere il ruolo **Capitano RPCI** per iscrivere una squadra.',
             flags: MessageFlags.Ephemeral
