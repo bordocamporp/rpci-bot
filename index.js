@@ -1,3 +1,12 @@
+
+process.on('unhandledRejection', error => {
+  console.error('Unhandled rejection intercettata:', error);
+});
+
+process.on('uncaughtException', error => {
+  console.error('Uncaught exception intercettata:', error);
+});
+
 require('dotenv').config();
 
 const {
@@ -3783,7 +3792,7 @@ draft.targetApplicationId = targetApplication?.id || null;
 
 if (interaction.customId === 'player_search_create') {
         const modal = new ModalBuilder()
-          .setCustomId('player_search_modal')
+          .setCustomId('player_search_modal_safe')
           .setTitle('Crea annuncio player');
 
         const name = new TextInputBuilder()
@@ -3808,15 +3817,15 @@ if (interaction.customId === 'player_search_create') {
 
         const platform = new TextInputBuilder()
           .setCustomId('platform')
-          .setLabel('PIATTAFORMA: PS5 / XBOX / PC')
-          .setPlaceholder('Scrivi PS5, XBOX oppure PC')
+          .setLabel('PIATTAFORMA')
+          .setPlaceholder('PS5 / XBOX / PC')
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
         const details = new TextInputBuilder()
           .setCustomId('details')
           .setLabel('ID CONSOLE + ESPERIENZE')
-          .setPlaceholder('Scrivi ID console, club precedenti e competizioni disputate')
+          .setPlaceholder('ID console, club precedenti e competizioni disputate')
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
 
@@ -3828,7 +3837,15 @@ if (interaction.customId === 'player_search_create') {
           new ActionRowBuilder().addComponents(details)
         );
 
-        return interaction.showModal(modal);
+        try {
+          return await interaction.showModal(modal);
+        } catch (error) {
+          console.error('Errore apertura modal player_search_modal_safe:', error);
+          return interaction.reply({
+            content: '❌ Errore apertura modulo. Riprova tra qualche secondo.',
+            flags: MessageFlags.Ephemeral
+          }).catch(() => null);
+        }
       }
 
 
@@ -4469,6 +4486,48 @@ if (interaction.customId === 'player_search_create') {
     }
 
     if (interaction.isModalSubmit()) {
+
+      if (interaction.customId === 'player_search_modal_safe') {
+        const playerName = interaction.fields.getTextInputValue('player_name').trim();
+        const ageRaw = interaction.fields.getTextInputValue('age').trim();
+        const role = interaction.fields.getTextInputValue('role').trim().toUpperCase();
+        const platform = interaction.fields.getTextInputValue('platform').trim().toUpperCase();
+        const details = interaction.fields.getTextInputValue('details').trim();
+
+        const age = Number(ageRaw);
+        if (!Number.isFinite(age) || age <= 0) {
+          return interaction.reply({
+            content: '❌ Età non valida. Inserisci solo un numero.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        if (!['PS5', 'XBOX', 'PC'].includes(platform)) {
+          return interaction.reply({
+            content: '❌ Piattaforma non valida. Scrivi PS5, XBOX oppure PC.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle('🔎 PLAYER CERCA SQUADRA')
+          .setDescription('Un player ha pubblicato il proprio profilo per trovare una squadra RPCI.')
+          .addFields(
+            { name: '👤 Player', value: playerName || 'N/D', inline: true },
+            { name: '🏷️ Discord', value: `<@${interaction.user.id}>`, inline: true },
+            { name: '🎂 Età', value: String(age), inline: true },
+            { name: '🎮 Piattaforma', value: platform, inline: true },
+            { name: '⚽ Ruolo', value: role || 'N/D', inline: true },
+            { name: '📝 ID Console + Esperienze', value: details.slice(0, 1024) || 'N/D', inline: false }
+          )
+          .setFooter({ text: 'RPCI • Player cerca squadra' })
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed] });
+      }
+
+
 
       if (interaction.customId === 'auction_offer_modal') {
         const draft = liveAuctionDrafts.get(interaction.user.id);
