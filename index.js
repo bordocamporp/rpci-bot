@@ -632,7 +632,7 @@ async function finalizeApplication(interaction, draft) {
       short_name: shortName,
       logo_url: draft.logoUrl,
       status: 'pending',
-      captain_player_id: draft.captainPlayerId
+      captain_discord_id: draft.captainPlayerId
     })
     .select()
     .single();
@@ -643,7 +643,7 @@ async function finalizeApplication(interaction, draft) {
     .from('club_applications')
     .insert({
       club_id: club.id,
-      captain_player_id: draft.captainPlayerId,
+      captain_discord_id: draft.captainPlayerId,
       captain_discord_id: draft.captainDiscordId,
       roster_size: draft.rosterSize,
       status: 'pending'
@@ -4303,7 +4303,7 @@ if (interaction.customId === 'player_search_create') {
 
         drafts.set(interaction.user.id, {
           captainDiscordId: interaction.user.id,
-          captainPlayerId: captainPlayer.id,
+          captainPlayerId: interaction.user.id,
           teamName: null,
           logoUrl: null,
           rosterSize: null,
