@@ -2608,17 +2608,29 @@ function buildCaptainPanel() {
 
 
 
-function hasCaptainRole(member) {
-  if (!member?.roles?.cache) return false;
+function hasCaptainRole(memberOrInteractionMember) {
+  if (!memberOrInteractionMember) return false;
 
-  if (typeof CAPTAIN_ROLE_ID !== 'undefined' && member.roles.cache.has(CAPTAIN_ROLE_ID)) {
-    return true;
+  const roleId = typeof CAPTAIN_ROLE_ID !== 'undefined' ? String(CAPTAIN_ROLE_ID) : null;
+
+  // Caso GuildMember classico: member.roles.cache
+  const cache = memberOrInteractionMember.roles?.cache;
+  if (cache) {
+    if (roleId && cache.has(roleId)) return true;
+
+    return cache.some(role => {
+      const name = String(role.name || '').toLowerCase();
+      return name.includes('capitano') || name.includes('captain');
+    });
   }
 
-  return member.roles.cache.some(role => {
-    const name = String(role.name || '').toLowerCase();
-    return name.includes('capitano') || name.includes('captain');
-  });
+  // Caso APIInteractionGuildMember: roles è array di ID
+  const rolesArray = memberOrInteractionMember.roles;
+  if (Array.isArray(rolesArray)) {
+    if (roleId && rolesArray.map(String).includes(roleId)) return true;
+  }
+
+  return false;
 }
 
 
@@ -4269,7 +4281,7 @@ if (interaction.customId === 'player_search_create') {
       }
 
       if (interaction.customId === 'start_registration') {
-        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
 
         if (!hasCaptainRole(member)) {
           return interaction.reply({
@@ -4288,13 +4300,6 @@ if (interaction.customId === 'player_search_create') {
         const { player: captainPlayer } = await getOrCreateUserAndPlayer(
           interaction.user
         );
-
-        if (!captainPlayer) {
-          return interaction.reply({
-            content: '❌ Devi avere il ruolo **Capitano RPCI** per iscrivere una squadra.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
 
         drafts.set(interaction.user.id, {
           captainDiscordId: interaction.user.id,
