@@ -574,6 +574,7 @@ function prepareSlashCommand(command) {
 
   function cleanChoices(choices) {
     if (!Array.isArray(choices)) return undefined;
+
     const cleaned = choices
       .filter(choice => choice && typeof choice === 'object')
       .filter(choice => typeof choice.name === 'string' && choice.name.trim().length > 0)
@@ -597,6 +598,7 @@ function prepareSlashCommand(command) {
       if (!option.type) continue;
 
       const clean = { ...option };
+
       clean.name = normalizeSlashName(clean.name);
       if (!clean.name) continue;
 
@@ -636,9 +638,16 @@ function getDiscordError(error) {
   }
 }
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout dopo ${ms}ms`)), ms))
+  ]);
+}
+
 (async () => {
   try {
-    console.log('🔄 Registrazione slash commands uno per uno...');
+    console.log('🔄 Registrazione slash commands in blocco...');
 
     const prepared = [];
     const seen = new Set();
@@ -656,31 +665,21 @@ function getDiscordError(error) {
       prepared.push(preparedCommand);
     }
 
-    console.log(`Comandi preparati: ${prepared.length}`);
+    console.log(`Comandi da registrare: ${prepared.length}`);
     console.log('Comandi:', prepared.map(c => c.name).join(', '));
 
-    const registered = [];
-    const skipped = [];
+    await withTimeout(
+      rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        { body: prepared }
+      ),
+      45000,
+      'Registrazione slash commands'
+    );
 
-    for (const command of prepared) {
-      try {
-        await rest.post(
-          Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-          { body: command }
-        );
-        registered.push(command.name);
-        console.log('✅ Registrato:', command.name);
-      } catch (error) {
-        skipped.push(command.name);
-        console.error('❌ NON registrato:', command.name);
-        console.error(getDiscordError(error));
-      }
-    }
-
-    console.log(`✅ Registrazione completata. Registrati: ${registered.length}/${prepared.length}`);
-    if (skipped.length) console.warn('⚠️ Comandi saltati:', skipped.join(', '));
+    console.log(`✅ Slash commands registrati correttamente: ${prepared.length}`);
   } catch (error) {
-    console.error('❌ Errore generale registrazione slash commands:', getDiscordError(error));
+    console.error('❌ Errore registrazione slash commands:', getDiscordError(error));
   }
 })();
 
