@@ -227,7 +227,7 @@ const commands = [
         .setDescription('Nome competizione')
         .setRequired(true)
     ),
-,
+
   new SlashCommandBuilder()
     .setName('assegna_premio_competizione')
     .setDescription('Staff: assegna bonus overall per vittoria/coppe/capocannoniere')
@@ -525,51 +525,6 @@ const commands = [
 
 
 
-// Comandi finali forzati: pannelli e staff.
-// Inseriti come JSON puro per evitare problemi di builder/array nelle patch precedenti.
-const forcedFinalCommands = [
-  {
-    name: 'pubblica_pannelli_canali',
-    description: 'Staff: pubblica pannelli bilancio, rose, calendario e referti',
-    type: 1
-  },
-  {
-    name: 'pannello_staff',
-    description: 'Staff: apre pannello centrale gestione RPCI',
-    type: 1
-  },
-  {
-    name: 'staff_dashboard',
-    description: 'Staff: mostra dashboard avanzata RPCI',
-    type: 1
-  },
-  {
-    name: 'bilancio_club',
-    description: 'Mostra il bilancio del tuo club',
-    type: 1
-  },
-  {
-    name: 'rosa_club',
-    description: 'Mostra la rosa del tuo club',
-    type: 1
-  },
-  {
-    name: 'calendario_mia_squadra',
-    description: 'Mostra il calendario della tua squadra',
-    type: 1
-  }
-];
-
-for (const forcedCommand of forcedFinalCommands) {
-  const alreadyExists = commands.some(command => {
-    const json = typeof command.toJSON === 'function' ? command.toJSON() : command;
-    return json?.name === forcedCommand.name;
-  });
-
-  if (!alreadyExists) {
-    commands.push(forcedCommand);
-  }
-}
 
 
 
@@ -594,6 +549,7 @@ for (const forcedCommand of forcedAliasCommands) {
 }
 
 
+
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 function normalizeSlashName(name) {
@@ -609,6 +565,7 @@ function prepareSlashCommand(command) {
   const raw = typeof command.toJSON === 'function' ? command.toJSON() : command;
   const clone = JSON.parse(JSON.stringify(raw));
 
+  clone.type = 1;
   clone.name = normalizeSlashName(clone.name);
   if (!clone.name) return null;
 
@@ -617,7 +574,6 @@ function prepareSlashCommand(command) {
 
   function cleanChoices(choices) {
     if (!Array.isArray(choices)) return undefined;
-
     const cleaned = choices
       .filter(choice => choice && typeof choice === 'object')
       .filter(choice => typeof choice.name === 'string' && choice.name.trim().length > 0)
@@ -627,13 +583,11 @@ function prepareSlashCommand(command) {
         value: typeof choice.value === 'string' ? choice.value.slice(0, 100) : choice.value
       }))
       .slice(0, 25);
-
     return cleaned.length ? cleaned : undefined;
   }
 
   function cleanOptions(options) {
     if (!Array.isArray(options)) return undefined;
-
     const cleaned = [];
 
     for (const option of options) {
@@ -641,7 +595,6 @@ function prepareSlashCommand(command) {
       if (!option.type) continue;
 
       const clean = { ...option };
-
       clean.name = normalizeSlashName(clean.name);
       if (!clean.name) continue;
 
@@ -673,14 +626,6 @@ function prepareSlashCommand(command) {
   return clone;
 }
 
-function formatRestError(error) {
-  try {
-    return JSON.stringify(error?.rawError || error?.data || error?.message || error, null, 2);
-  } catch {
-    return String(error?.message || error);
-  }
-}
-
 (async () => {
   try {
     console.log('🔄 Registrazione slash commands...');
@@ -689,8 +634,7 @@ function formatRestError(error) {
     const seen = new Set();
 
     for (const commandBuilder of commands.filter(Boolean)) {
-      const commandJson = typeof commandBuilder.toJSON === 'function' ? commandBuilder.toJSON() : commandBuilder;
-      const preparedCommand = prepareSlashCommand(commandJson);
+      const preparedCommand = prepareSlashCommand(commandBuilder);
       if (!preparedCommand) continue;
 
       if (seen.has(preparedCommand.name)) {
@@ -702,82 +646,19 @@ function formatRestError(error) {
       prepared.push(preparedCommand);
     }
 
-    console.log('Comandi validi preparati:', prepared.map(c => c.name).join(', '));
+    console.log(`Comandi da registrare: ${prepared.length}`);
+    console.log('Comandi:', prepared.map(c => c.name).join(', '));
 
-    // Pulisce i vecchi comandi guild
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-      { body: [] }
+      { body: prepared }
     );
 
-    const registered = [];
-    const skipped = [];
-
-    for (const command of prepared) {
-      try {
-        await rest.post(
-          Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-          { body: command }
-        );
-        registered.push(command.name);
-      } catch (error) {
-        skipped.push(command.name);
-        console.error(`❌ Slash command scartato: ${command.name}`);
-        console.error(formatRestError(error));
-      }
-    }
-
-    console.log(`✅ Slash commands registrati: ${registered.length}/${prepared.length}`);
-    console.log('Registrati:', registered.join(', '));
-    if (skipped.length) console.warn('⚠️ Comandi non registrati:', skipped.join(', '));
+    console.log(`✅ Slash commands registrati correttamente: ${prepared.length}`);
   } catch (error) {
-    console.error('❌ Errore registrazione slash commands:', error);
+    console.error('❌ Errore registrazione slash commands:', error?.rawError || error);
   }
 })();
-
-
-
-async function registerForcedAliasCommands() {
-  try {
-    const aliasCommands = [
-      { name: 'dashboard', description: 'Staff dashboard RPCI', type: 1 },
-      { name: 'staff', description: 'Pannello staff RPCI', type: 1 },
-      { name: 'budget', description: 'Mostra budget del club', type: 1 },
-      { name: 'bilancio', description: 'Mostra bilancio del club', type: 1 },
-      { name: 'rosa', description: 'Mostra rosa del club', type: 1 },
-      { name: 'calendario', description: 'Mostra calendario squadra', type: 1 },
-      { name: 'pannelli', description: 'Pubblica pannelli canali RPCI', type: 1 }
-    ];
-
-    console.log('🔧 Registrazione alias diretti:', aliasCommands.map(c => c.name).join(', '));
-
-    const existing = await rest.get(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
-    ).catch(() => []);
-
-    for (const command of aliasCommands) {
-      const old = Array.isArray(existing) ? existing.find(c => c.name === command.name) : null;
-
-      if (old?.id) {
-        await rest.patch(
-          Routes.applicationGuildCommand(process.env.CLIENT_ID, process.env.GUILD_ID, old.id),
-          { body: command }
-        );
-      } else {
-        await rest.post(
-          Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-          { body: command }
-        );
-      }
-
-      console.log('✅ Alias registrato:', command.name);
-    }
-  } catch (error) {
-    console.error('❌ Errore registrazione alias diretti:', error?.rawError || error);
-  }
-}
-
-registerForcedAliasCommands();
 
 
 client.once('ready', () => {
