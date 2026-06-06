@@ -736,6 +736,50 @@ function formatRestError(error) {
 })();
 
 
+
+async function registerForcedAliasCommands() {
+  try {
+    const aliasCommands = [
+      { name: 'dashboard', description: 'Staff dashboard RPCI', type: 1 },
+      { name: 'staff', description: 'Pannello staff RPCI', type: 1 },
+      { name: 'budget', description: 'Mostra budget del club', type: 1 },
+      { name: 'bilancio', description: 'Mostra bilancio del club', type: 1 },
+      { name: 'rosa', description: 'Mostra rosa del club', type: 1 },
+      { name: 'calendario', description: 'Mostra calendario squadra', type: 1 },
+      { name: 'pannelli', description: 'Pubblica pannelli canali RPCI', type: 1 }
+    ];
+
+    console.log('🔧 Registrazione alias diretti:', aliasCommands.map(c => c.name).join(', '));
+
+    const existing = await rest.get(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
+    ).catch(() => []);
+
+    for (const command of aliasCommands) {
+      const old = Array.isArray(existing) ? existing.find(c => c.name === command.name) : null;
+
+      if (old?.id) {
+        await rest.patch(
+          Routes.applicationGuildCommand(process.env.CLIENT_ID, process.env.GUILD_ID, old.id),
+          { body: command }
+        );
+      } else {
+        await rest.post(
+          Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+          { body: command }
+        );
+      }
+
+      console.log('✅ Alias registrato:', command.name);
+    }
+  } catch (error) {
+    console.error('❌ Errore registrazione alias diretti:', error?.rawError || error);
+  }
+}
+
+registerForcedAliasCommands();
+
+
 client.once('ready', () => {
   console.log(`✅ Bot online come ${client.user.tag}`);
 });
