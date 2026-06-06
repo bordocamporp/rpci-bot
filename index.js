@@ -528,29 +528,24 @@ const commands = [
 
 
 
-// Alias slash command sicuri per comandi dashboard/budget/rosa/pannelli.
-// Questi nomi sono corti e senza underscore lunghi, così Discord li accetta sempre.
-const forcedAliasCommands = [
-  { name: 'dashboard', description: 'Staff: dashboard RPCI', type: 1 },
-  { name: 'staff', description: 'Staff: pannello rapido RPCI', type: 1 },
-  { name: 'budget', description: 'Mostra budget del tuo club', type: 1 },
-  { name: 'bilancio', description: 'Mostra bilancio del tuo club', type: 1 },
-  { name: 'rosa', description: 'Mostra rosa del tuo club', type: 1 },
-  { name: 'calendario', description: 'Mostra calendario della tua squadra', type: 1 },
-  { name: 'pannelli', description: 'Staff: pubblica pannelli canali RPCI', type: 1 }
-];
-
-for (const forcedCommand of forcedAliasCommands) {
-  const exists = commands.some(command => {
-    const json = typeof command.toJSON === 'function' ? command.toJSON() : command;
-    return json?.name === forcedCommand.name;
-  });
-  if (!exists) commands.push(forcedCommand);
-}
 
 
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+const PRIORITY_COMMANDS = [
+  'staff_dashboard',
+  'pannello_staff',
+  'pubblica_pannelli_canali',
+  'bilancio_club',
+  'rosa_club',
+  'calendario_mia_squadra',
+  'budget_club'
+];
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function normalizeSlashName(name) {
   return String(name || '')
@@ -574,7 +569,6 @@ function prepareSlashCommand(command) {
 
   function cleanChoices(choices) {
     if (!Array.isArray(choices)) return undefined;
-
     const cleaned = choices
       .filter(choice => choice && typeof choice === 'object')
       .filter(choice => typeof choice.name === 'string' && choice.name.trim().length > 0)
@@ -638,48 +632,85 @@ function getDiscordError(error) {
   }
 }
 
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout dopo ${ms}ms`)), ms))
-  ]);
+async function upsertGuildCommand(command, existingCommands) {
+  const found = Array.isArray(existingCommands)
+    ? existingCommands.find(c => c.name === command.name)
+    : null;
+
+  if (found?.id) {
+    try {
+      await rest.patch(
+        Routes.applicationGuildCommand(process.env.CLIENT_ID, process.env.GUILD_ID, found.id),
+        { body: command }
+      );
+      return 'aggiornato';
+    } catch (error) {
+      if (error?.code !== 10063 && error?.rawError?.code !== 10063) throw error;
+    }
+  }
+
+  await rest.post(
+    Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+    { body: command }
+  );
+  return 'creato';
 }
 
 (async () => {
   try {
-    console.log('🔄 Registrazione slash commands in blocco...');
+    console.log('🔄 Registrazione slash commands prioritaria...');
 
-    const prepared = [];
-    const seen = new Set();
+    const preparedMap = new Map();
 
     for (const commandBuilder of commands.filter(Boolean)) {
       const preparedCommand = prepareSlashCommand(commandBuilder);
       if (!preparedCommand) continue;
-
-      if (seen.has(preparedCommand.name)) {
-        console.warn('⚠️ Comando duplicato scartato:', preparedCommand.name);
-        continue;
-      }
-
-      seen.add(preparedCommand.name);
-      prepared.push(preparedCommand);
+      if (!preparedMap.has(preparedCommand.name)) preparedMap.set(preparedCommand.name, preparedCommand);
     }
 
-    console.log(`Comandi da registrare: ${prepared.length}`);
-    console.log('Comandi:', prepared.map(c => c.name).join(', '));
+    const prepared = [
+      ...PRIORITY_COMMANDS.map(name => preparedMap.get(name)).filter(Boolean),
+      ...[...preparedMap.values()].filter(command => !PRIORITY_COMMANDS.includes(command.name))
+    ];
 
-    await withTimeout(
-      rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: prepared }
-      ),
-      45000,
-      'Registrazione slash commands'
-    );
+    console.log(`Comandi preparati: ${prepared.length}`);
+    console.log('Comandi prioritari:', PRIORITY_COMMANDS.filter(name => preparedMap.has(name)).join(', '));
 
-    console.log(`✅ Slash commands registrati correttamente: ${prepared.length}`);
+    let existingCommands = await rest.get(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
+    ).catch(error => {
+      console.warn('⚠️ Non riesco a leggere comandi esistenti, procedo in create:', getDiscordError(error));
+      return [];
+    });
+
+    const registered = [];
+    const skipped = [];
+
+    for (const command of prepared) {
+      try {
+        const action = await upsertGuildCommand(command, existingCommands);
+        registered.push(command.name);
+        console.log(`✅ ${action}: ${command.name}`);
+
+        // Aggiorna lista locale per evitare duplicati se un comando viene creato.
+        existingCommands = Array.isArray(existingCommands)
+          ? [...existingCommands.filter(c => c.name !== command.name), { id: 'local', name: command.name }]
+          : [];
+
+        // Piccola pausa per evitare rate limit Discord.
+        await sleep(750);
+      } catch (error) {
+        skipped.push(command.name);
+        console.error(`❌ NON registrato: ${command.name}`);
+        console.error(getDiscordError(error));
+        await sleep(1500);
+      }
+    }
+
+    console.log(`✅ Registrazione completata. Registrati/aggiornati: ${registered.length}/${prepared.length}`);
+    if (skipped.length) console.warn('⚠️ Comandi saltati:', skipped.join(', '));
   } catch (error) {
-    console.error('❌ Errore registrazione slash commands:', getDiscordError(error));
+    console.error('❌ Errore generale registrazione slash commands:', getDiscordError(error));
   }
 })();
 
