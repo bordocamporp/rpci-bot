@@ -3438,6 +3438,7 @@ function buildStaffPanel() {
         new ButtonBuilder().setCustomId('staff_backup').setLabel('Backup').setStyle(ButtonStyle.Secondary)
       ),
       new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('staff_publish_all_panels').setLabel('Pubblica Tutti i Pannelli').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('staff_publish_fa').setLabel('Pannello Free Agent').setStyle(ButtonStyle.Primary)
       )
     ]
@@ -3989,19 +3990,46 @@ function buildReportsPanel() {
   };
 }
 
+
+
 async function publishOperationalPanels() {
-  const balanceChannel = await client.channels.fetch(BALANCE_CHANNEL_ID).catch(() => null);
-  if (balanceChannel) await balanceChannel.send(buildBalancePanel()).catch(() => null);
+  const results = [];
 
-  const rosterChannel = await client.channels.fetch(ROSTERS_CHANNEL_ID).catch(() => null);
-  if (rosterChannel) await rosterChannel.send(buildRosterPanel()).catch(() => null);
+  async function sendPanel(channelId, panelBuilder, label) {
+    const channel = await client.channels.fetch(channelId).catch(error => {
+      console.error(`Errore fetch canale ${label}:`, error?.message || error);
+      return null;
+    });
 
-  const calendarChannel = await client.channels.fetch(CALENDAR_CHANNEL_ID).catch(() => null);
-  if (calendarChannel) await calendarChannel.send(buildCalendarPanel()).catch(() => null);
+    if (!channel) {
+      results.push(`❌ ${label}: canale non trovato`);
+      return;
+    }
 
-  const reportsChannel = await client.channels.fetch(MATCH_REPORTS_CHANNEL_ID).catch(() => null);
-  if (reportsChannel) await reportsChannel.send(buildReportsPanel()).catch(() => null);
+    try {
+      const panel = typeof panelBuilder === 'function' ? panelBuilder() : panelBuilder;
+      await channel.send(panel);
+      results.push(`✅ ${label}`);
+    } catch (error) {
+      console.error(`Errore invio pannello ${label}:`, error?.message || error);
+      results.push(`❌ ${label}: errore invio`);
+    }
+  }
+
+  await Promise.allSettled([
+    sendPanel(PLAYER_REGISTRATION_CHANNEL_ID, buildPlayerRegistrationPanel, 'Iscrizioni Player'),
+    sendPanel(CAPTAIN_ELECTION_PANEL_CHANNEL_ID, buildCaptainElectionPanel, 'Candidature Capitano'),
+    sendPanel(FREE_AGENT_CHANNEL_ID, buildFreeAgentPanel, 'Free Agent'),
+    sendPanel(BALANCE_CHANNEL_ID, buildBalancePanel, 'Bilancio Club'),
+    sendPanel(ROSTERS_CHANNEL_ID, buildRosterPanel, 'Rose Club'),
+    sendPanel(CALENDAR_CHANNEL_ID, buildCalendarPanel, 'Calendario'),
+    sendPanel(MATCH_REPORTS_CHANNEL_ID, buildReportsPanel, 'Referti')
+  ]);
+
+  return results;
 }
+
+
 
 async function openReportCompetitionSelection(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
@@ -4336,6 +4364,68 @@ async function buildAdvancedStaffDashboard() {
     .setTimestamp();
 }
 
+
+async function safeInteractionReply(interaction, payload) {
+  try {
+    if (!interaction || !interaction.isRepliable?.()) return null;
+
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.followUp(payload).catch(async () => {
+        return interaction.editReply(payload).catch(() => null);
+      });
+    }
+
+    return await interaction.reply(payload);
+  } catch (error) {
+    if (error?.code === 10062 || error?.rawError?.code === 10062) {
+      console.warn('⚠️ Interaction scaduta/già chiusa, risposta ignorata.');
+      return null;
+    }
+    if (error?.code === 40060 || error?.rawError?.code === 40060) {
+      return interaction.followUp(payload).catch(() => null);
+    }
+    console.error('safeInteractionReply:', error);
+    return null;
+  }
+}
+
+async function safeInteractionDefer(interaction, options = { flags: MessageFlags.Ephemeral }) {
+  try {
+    if (!interaction || !interaction.isRepliable?.()) return false;
+    if (interaction.deferred || interaction.replied) return true;
+    await interaction.deferReply(options);
+    return true;
+  } catch (error) {
+    if (error?.code === 10062 || error?.rawError?.code === 10062) {
+      console.warn('⚠️ Interaction scaduta prima del defer.');
+      return false;
+    }
+    console.error('safeInteractionDefer:', error);
+    return false;
+  }
+}
+
+async function safeInteractionEdit(interaction, payload) {
+  try {
+    if (!interaction || !interaction.isRepliable?.()) return null;
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(payload);
+    }
+    return await interaction.reply(payload);
+  } catch (error) {
+    if (error?.code === 10062 || error?.rawError?.code === 10062) {
+      console.warn('⚠️ Interaction scaduta/già chiusa, edit ignorato.');
+      return null;
+    }
+    if (error?.code === 40060 || error?.rawError?.code === 40060) {
+      return interaction.followUp(payload).catch(() => null);
+    }
+    console.error('safeInteractionEdit:', error);
+    return null;
+  }
+}
+
+
 // =======================================================
 // INTERACTIONS
 // =======================================================
@@ -4362,7 +4452,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         await setRegistrationOpen(false);
-        return interaction.reply({ content: '✅ Iscrizioni player chiuse.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Iscrizioni player chiuse.', flags: MessageFlags.Ephemeral });
       }
 
 
@@ -4550,7 +4640,7 @@ client.on('interactionCreate', async interaction => {
           return interaction.reply({ content: '❌ Solo lo staff può sorteggiare le squadre.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
 
         const numero = interaction.options.getInteger('numero_squadre');
         const nomi = parseCommaList(interaction.options.getString('nomi_squadre'));
@@ -4947,7 +5037,7 @@ client.on('interactionCreate', async interaction => {
           return interaction.reply({ content: '❌ Solo lo staff può aprire il mercato.', flags: MessageFlags.Ephemeral });
         }
         await setMarketOpen(true);
-        return interaction.reply({ content: '✅ Mercato club aperto.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Mercato club aperto.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.commandName === 'chiudi_mercato') {
@@ -4956,7 +5046,7 @@ client.on('interactionCreate', async interaction => {
           return interaction.reply({ content: '❌ Solo lo staff può chiudere il mercato.', flags: MessageFlags.Ephemeral });
         }
         await setMarketOpen(false);
-        return interaction.reply({ content: '✅ Mercato club chiuso.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Mercato club chiuso.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.commandName === 'pubblica_free_agent') {
@@ -4967,7 +5057,7 @@ client.on('interactionCreate', async interaction => {
         const ch = await client.channels.fetch(FREE_AGENT_CHANNEL_ID).catch(() => null);
         if (!ch) return interaction.reply({ content: '❌ Canale free agent non trovato.', flags: MessageFlags.Ephemeral });
         await ch.send(buildFreeAgentPanel());
-        return interaction.reply({ content: '✅ Pannello Free Agent pubblicato.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Pannello Free Agent pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.commandName === 'stagione_terminata') {
@@ -4976,7 +5066,7 @@ client.on('interactionCreate', async interaction => {
           return interaction.reply({ content: '❌ Solo lo staff può terminare la stagione.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
         const backup = await createSeasonBackup('Backup automatico stagione terminata');
         const result = await processSeasonEnd(interaction);
         return interaction.editReply(`✅ Stagione terminata. Backup creato: **${backup.label}** • Contratti scalati: **${result.scaled}** • Free Agent creati: **${result.expired}**. Promozioni/retrocessioni disponibili con /applica_promozioni_retrocessioni.`);
@@ -5018,7 +5108,7 @@ client.on('interactionCreate', async interaction => {
         const ch = await client.channels.fetch(CAPTAIN_ELECTION_PANEL_CHANNEL_ID).catch(() => null);
         if (!ch) return interaction.reply({ content: '❌ Canale elezioni non trovato.', flags: MessageFlags.Ephemeral });
         await ch.send(buildCaptainElectionPanel());
-        return interaction.reply({ content: '✅ Pannello elezioni capitani pubblicato.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Pannello elezioni capitani pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.commandName === 'chiudi_elezioni_capitani') {
@@ -5118,9 +5208,10 @@ client.on('interactionCreate', async interaction => {
 
       if (interaction.commandName === 'pubblica_pannelli_canali') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
-        await publishOperationalPanels();
-        return interaction.reply({ content: '✅ Pannelli pubblicati nei canali operativi.', flags: MessageFlags.Ephemeral });
+        if (!isRpcStaffMember(member)) return safeInteractionReply(interaction, { content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
+        const results = await publishOperationalPanels();
+        return safeInteractionEdit(interaction, { content: `✅ Pubblicazione pannelli completata.\n\n${results.join('\n')}` });
       }
 
       if (interaction.commandName === 'bilancio_club') {
@@ -5147,7 +5238,7 @@ client.on('interactionCreate', async interaction => {
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
 
         const name = interaction.options.getString('competizione').trim();
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
         const result = await generateFinalStageFromGroups(name);
         return interaction.editReply(`✅ Fase finale generata per **${result.comp.name}**. Qualificate: **${result.qualified.length}** • Partite create: **${result.rows.length}**.`);
       }
@@ -5246,14 +5337,14 @@ client.on('interactionCreate', async interaction => {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
         await setMarketOpen(true);
-        return interaction.reply({ content: '✅ Mercato club aperto.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Mercato club aperto.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'staff_close_market') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
         await setMarketOpen(false);
-        return interaction.reply({ content: '✅ Mercato club chiuso.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Mercato club chiuso.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'staff_open_reg') {
@@ -5262,14 +5353,14 @@ client.on('interactionCreate', async interaction => {
         await setRegistrationOpen(true);
         const ch = await client.channels.fetch(PLAYER_REGISTRATION_CHANNEL_ID).catch(() => null);
         if (ch) await ch.send(buildPlayerRegistrationPanel()).catch(() => null);
-        return interaction.reply({ content: '✅ Iscrizioni player aperte e pannello pubblicato.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Iscrizioni player aperte e pannello pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'staff_close_reg') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
         await setRegistrationOpen(false);
-        return interaction.reply({ content: '✅ Iscrizioni player chiuse.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Iscrizioni player chiuse.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'staff_elections_start') {
@@ -5278,7 +5369,7 @@ client.on('interactionCreate', async interaction => {
         const ch = await client.channels.fetch(CAPTAIN_ELECTION_PANEL_CHANNEL_ID).catch(() => null);
         if (!ch) return interaction.reply({ content: '❌ Canale elezioni capitani non trovato.', flags: MessageFlags.Ephemeral });
         await ch.send(buildCaptainElectionPanel());
-        return interaction.reply({ content: '✅ Pannello elezioni capitani pubblicato.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Pannello elezioni capitani pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'staff_elections_close') {
@@ -5291,18 +5382,27 @@ client.on('interactionCreate', async interaction => {
       if (interaction.customId === 'staff_season_end') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
         const backup = await createSeasonBackup('Backup automatico da pannello staff');
         const result = await processSeasonEnd(interaction);
-        return interaction.editReply(`✅ Stagione terminata. Backup: **${backup.label}** • Contratti scalati: **${result.scaled}** • Free Agent creati: **${result.expired}**.`);
+        return safeInteractionEdit(interaction, { content: `✅ Stagione terminata. Backup: **${backup.label}** • Contratti scalati: **${result.scaled}** • Free Agent creati: **${result.expired}**.` });
       }
 
       if (interaction.customId === 'staff_backup') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
         const backup = await createSeasonBackup('Backup manuale da pannello staff');
-        return interaction.editReply(`✅ Backup creato: **${backup.label}**.`);
+        return safeInteractionEdit(interaction, { content: `✅ Backup creato: **${backup.label}**.` });
+      }
+
+
+      if (interaction.customId === 'staff_publish_all_panels') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return safeInteractionReply(interaction, { content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
+        const results = await publishOperationalPanels();
+        return safeInteractionEdit(interaction, { content: `✅ Pubblicazione pannelli completata.\n\n${results.join('\n')}` });
       }
 
       if (interaction.customId === 'staff_publish_fa') {
@@ -5311,7 +5411,7 @@ client.on('interactionCreate', async interaction => {
         const ch = await client.channels.fetch(FREE_AGENT_CHANNEL_ID).catch(() => null);
         if (!ch) return interaction.reply({ content: '❌ Canale Free Agent non trovato.', flags: MessageFlags.Ephemeral });
         await ch.send(buildFreeAgentPanel());
-        return interaction.reply({ content: '✅ Pannello Free Agent pubblicato.', flags: MessageFlags.Ephemeral });
+        return safeInteractionReply(interaction, { content: '✅ Pannello Free Agent pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
 
