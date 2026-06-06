@@ -548,156 +548,107 @@ function sleep(ms) {
 }
 
 function normalizeSlashName(name) {
-  return String(name || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '_')
-    .slice(0, 32);
+  return String(name || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 32);
 }
 
 function prepareSlashCommand(command) {
   if (!command || typeof command !== 'object') return null;
-
   const raw = typeof command.toJSON === 'function' ? command.toJSON() : command;
   const clone = JSON.parse(JSON.stringify(raw));
-
   clone.type = 1;
   clone.name = normalizeSlashName(clone.name);
   if (!clone.name) return null;
-
   clone.description = String(clone.description || 'Comando RPCI').slice(0, 100);
-  if (!clone.description) clone.description = 'Comando RPCI';
 
   function cleanChoices(choices) {
     if (!Array.isArray(choices)) return undefined;
     const cleaned = choices
-      .filter(choice => choice && typeof choice === 'object')
-      .filter(choice => typeof choice.name === 'string' && choice.name.trim().length > 0)
-      .filter(choice => Object.prototype.hasOwnProperty.call(choice, 'value'))
-      .map(choice => ({
-        name: String(choice.name).slice(0, 100),
-        value: typeof choice.value === 'string' ? choice.value.slice(0, 100) : choice.value
-      }))
+      .filter(c => c && typeof c === 'object' && typeof c.name === 'string' && Object.prototype.hasOwnProperty.call(c, 'value'))
+      .map(c => ({ name: String(c.name).slice(0, 100), value: typeof c.value === 'string' ? c.value.slice(0, 100) : c.value }))
       .slice(0, 25);
-
     return cleaned.length ? cleaned : undefined;
   }
 
   function cleanOptions(options) {
     if (!Array.isArray(options)) return undefined;
-
     const cleaned = [];
-
     for (const option of options) {
-      if (!option || typeof option !== 'object') continue;
-      if (!option.type) continue;
-
+      if (!option || typeof option !== 'object' || !option.type) continue;
       const clean = { ...option };
-
       clean.name = normalizeSlashName(clean.name);
       if (!clean.name) continue;
-
       clean.description = String(clean.description || clean.name).slice(0, 100);
-      if (!clean.description) clean.description = clean.name;
-
       if (clean.choices) {
         const choices = cleanChoices(clean.choices);
         if (choices) clean.choices = choices;
         else delete clean.choices;
       }
-
       if (clean.options) {
         const sub = cleanOptions(clean.options);
         if (sub) clean.options = sub;
         else delete clean.options;
       }
-
       cleaned.push(clean);
     }
-
     return cleaned.length ? cleaned.slice(0, 25) : undefined;
   }
 
   const options = cleanOptions(clone.options || []);
   if (options) clone.options = options;
   else delete clone.options;
-
   return clone;
 }
 
 function getDiscordError(error) {
-  try {
-    return JSON.stringify(error?.rawError || error?.data || error?.message || error, null, 2);
-  } catch {
-    return String(error?.message || error);
-  }
+  try { return JSON.stringify(error?.rawError || error?.data || error?.message || error, null, 2); }
+  catch { return String(error?.message || error); }
 }
 
 async function upsertGuildCommand(command, existingCommands) {
-  const found = Array.isArray(existingCommands)
-    ? existingCommands.find(c => c.name === command.name)
-    : null;
-
-  if (found?.id) {
+  const found = Array.isArray(existingCommands) ? existingCommands.find(c => c.name === command.name) : null;
+  if (found?.id && found.id !== 'local') {
     try {
-      await rest.patch(
-        Routes.applicationGuildCommand(process.env.CLIENT_ID, process.env.GUILD_ID, found.id),
-        { body: command }
-      );
+      await rest.patch(Routes.applicationGuildCommand(process.env.CLIENT_ID, process.env.GUILD_ID, found.id), { body: command });
       return 'aggiornato';
     } catch (error) {
       if (error?.code !== 10063 && error?.rawError?.code !== 10063) throw error;
     }
   }
-
-  await rest.post(
-    Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-    { body: command }
-  );
+  await rest.post(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: command });
   return 'creato';
 }
 
 (async () => {
   try {
     console.log('🔄 Registrazione slash commands prioritaria...');
-
     const preparedMap = new Map();
-
     for (const commandBuilder of commands.filter(Boolean)) {
       const preparedCommand = prepareSlashCommand(commandBuilder);
-      if (!preparedCommand) continue;
-      if (!preparedMap.has(preparedCommand.name)) preparedMap.set(preparedCommand.name, preparedCommand);
+      if (preparedCommand && !preparedMap.has(preparedCommand.name)) preparedMap.set(preparedCommand.name, preparedCommand);
     }
-
     const prepared = [
       ...PRIORITY_COMMANDS.map(name => preparedMap.get(name)).filter(Boolean),
       ...[...preparedMap.values()].filter(command => !PRIORITY_COMMANDS.includes(command.name))
     ];
-
     console.log(`Comandi preparati: ${prepared.length}`);
     console.log('Comandi prioritari:', PRIORITY_COMMANDS.filter(name => preparedMap.has(name)).join(', '));
 
-    let existingCommands = await rest.get(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
-    ).catch(error => {
-      console.warn('⚠️ Non riesco a leggere comandi esistenti, procedo in create:', getDiscordError(error));
-      return [];
-    });
+    let existingCommands = await rest.get(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID))
+      .catch(error => {
+        console.warn('⚠️ Non riesco a leggere comandi esistenti, procedo in create:', getDiscordError(error));
+        return [];
+      });
 
     const registered = [];
     const skipped = [];
-
     for (const command of prepared) {
       try {
         const action = await upsertGuildCommand(command, existingCommands);
         registered.push(command.name);
         console.log(`✅ ${action}: ${command.name}`);
-
-        // Aggiorna lista locale per evitare duplicati se un comando viene creato.
         existingCommands = Array.isArray(existingCommands)
           ? [...existingCommands.filter(c => c.name !== command.name), { id: 'local', name: command.name }]
           : [];
-
-        // Piccola pausa per evitare rate limit Discord.
         await sleep(750);
       } catch (error) {
         skipped.push(command.name);
@@ -706,7 +657,6 @@ async function upsertGuildCommand(command, existingCommands) {
         await sleep(1500);
       }
     }
-
     console.log(`✅ Registrazione completata. Registrati/aggiornati: ${registered.length}/${prepared.length}`);
     if (skipped.length) console.warn('⚠️ Comandi saltati:', skipped.join(', '));
   } catch (error) {
@@ -5291,6 +5241,80 @@ client.on('interactionCreate', async interaction => {
 
     // ====== BUTTONS ======
     if (interaction.isButton()) {
+
+      if (interaction.customId === 'staff_open_market') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await setMarketOpen(true);
+        return interaction.reply({ content: '✅ Mercato club aperto.', flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'staff_close_market') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await setMarketOpen(false);
+        return interaction.reply({ content: '✅ Mercato club chiuso.', flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'staff_open_reg') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await setRegistrationOpen(true);
+        const ch = await client.channels.fetch(PLAYER_REGISTRATION_CHANNEL_ID).catch(() => null);
+        if (ch) await ch.send(buildPlayerRegistrationPanel()).catch(() => null);
+        return interaction.reply({ content: '✅ Iscrizioni player aperte e pannello pubblicato.', flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'staff_close_reg') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await setRegistrationOpen(false);
+        return interaction.reply({ content: '✅ Iscrizioni player chiuse.', flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'staff_elections_start') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        const ch = await client.channels.fetch(CAPTAIN_ELECTION_PANEL_CHANNEL_ID).catch(() => null);
+        if (!ch) return interaction.reply({ content: '❌ Canale elezioni capitani non trovato.', flags: MessageFlags.Ephemeral });
+        await ch.send(buildCaptainElectionPanel());
+        return interaction.reply({ content: '✅ Pannello elezioni capitani pubblicato.', flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'staff_elections_close') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        const assigned = await closeCaptainElectionsAndAssign(interaction.guild);
+        return interaction.reply({ content: `✅ Elezioni chiuse. Capitani/CT assegnati: **${assigned}**.`, flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'staff_season_end') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const backup = await createSeasonBackup('Backup automatico da pannello staff');
+        const result = await processSeasonEnd(interaction);
+        return interaction.editReply(`✅ Stagione terminata. Backup: **${backup.label}** • Contratti scalati: **${result.scaled}** • Free Agent creati: **${result.expired}**.`);
+      }
+
+      if (interaction.customId === 'staff_backup') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const backup = await createSeasonBackup('Backup manuale da pannello staff');
+        return interaction.editReply(`✅ Backup creato: **${backup.label}**.`);
+      }
+
+      if (interaction.customId === 'staff_publish_fa') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+        const ch = await client.channels.fetch(FREE_AGENT_CHANNEL_ID).catch(() => null);
+        if (!ch) return interaction.reply({ content: '❌ Canale Free Agent non trovato.', flags: MessageFlags.Ephemeral });
+        await ch.send(buildFreeAgentPanel());
+        return interaction.reply({ content: '✅ Pannello Free Agent pubblicato.', flags: MessageFlags.Ephemeral });
+      }
+
+
       if (interaction.customId === 'player_signup_start') {
         const open = await getRegistrationOpen();
         if (!open) {
