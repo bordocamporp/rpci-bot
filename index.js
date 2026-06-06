@@ -37,6 +37,8 @@ const CAPTAIN_ROLE_ID = '1507736309282635817';
 const STAFF_ROLE_IDS = ['1398225204404289669', '1507735305279635610'];
 
 const PLAYER_REGISTRATION_CHANNEL_ID = process.env.PLAYER_REGISTRATION_CHANNEL_ID || '1507746191528562778';
+const CLUB_REGISTRATION_CHANNEL_ID = process.env.CLUB_REGISTRATION_CHANNEL_ID || PLAYER_REGISTRATION_CHANNEL_ID;
+const NATIONAL_REGISTRATION_CHANNEL_ID = process.env.NATIONAL_REGISTRATION_CHANNEL_ID || PLAYER_REGISTRATION_CHANNEL_ID;
 const MATCH_REPORTS_CHANNEL_ID = '1507742878313746443';
 const MATCH_RESULTS_CHANNEL_ID = '1507742819920379974';
 const APPEALS_CHANNEL_ID = '1507742936618500116';
@@ -160,6 +162,14 @@ const commands = [
   new SlashCommandBuilder()
     .setName('chiudi_iscrizioni_player')
     .setDescription('Staff: chiude le iscrizioni player'),
+
+  new SlashCommandBuilder()
+    .setName('avvia_iscrizioni_club')
+    .setDescription('Staff: pubblica il pannello iscrizioni modalità Club'),
+
+  new SlashCommandBuilder()
+    .setName('avvia_iscrizioni_nazionale')
+    .setDescription('Staff: pubblica il pannello iscrizioni Mondiale/Nazionali'),
 
   new SlashCommandBuilder()
     .setName('sorteggia_squadre')
@@ -756,31 +766,62 @@ async function getRosterByDraftTeamId(teamId) {
 // =======================================================
 // FASE 1 - ISCRIZIONE PLAYER
 // =======================================================
-function buildPlayerRegistrationPanel() {
+
+function buildPlayerRegistrationPanel(mode = 'generic') {
+  const isClub = mode === 'club';
+  const isNational = mode === 'national';
+
+  const title = isClub
+    ? '🏟️ ISCRIZIONI MODALITÀ CLUB RPCI'
+    : isNational
+      ? '🌍 ISCRIZIONI MONDIALE / NAZIONALI RPCI'
+      : '📝 ISCRIZIONI PLAYER RPCI';
+
+  const description = isClub
+    ? 'Iscriviti per partecipare alla modalità Club RPCI.\n\nScegli il ruolo e compila i tuoi dati. Questa iscrizione sarà valida per draft e competizioni Club.'
+    : isNational
+      ? 'Iscriviti per partecipare alla modalità Nazionale / Mondiale RPCI.\n\nScegli il ruolo e compila i tuoi dati. Questa iscrizione sarà valida per sorteggio Nazionali.'
+      : 'Iscriviti come player alla competizione RPCI.\n\nDovrai scegliere il ruolo e compilare i tuoi dati.';
+
+  const customId = isClub
+    ? 'player_signup_start_club'
+    : isNational
+      ? 'player_signup_start_national'
+      : 'player_signup_start';
+
+  const label = isClub
+    ? 'ISCRIVITI MODALITÀ CLUB'
+    : isNational
+      ? 'ISCRIVITI MONDIALE 2026'
+      : 'ISCRIVITI COME PLAYER';
+
   const embed = new EmbedBuilder()
-    .setTitle('📝 ISCRIZIONI PLAYER RPCI')
+    .setTitle(title)
     .setColor(0xd4af37)
-    .setDescription(
-      'Iscriviti come player alla competizione RPCI.\n\n' +
-      'Dovrai scegliere il ruolo e compilare:\n' +
-      '• Nome\n• Età\n• Console\n• ID Console\n• Overall\n\n' +
-      'Dopo l’iscrizione, lo staff potrà sorteggiare le squadre.'
-    )
-    .setFooter({ text: 'RPCI • Iscrizione player singoli' })
+    .setDescription(description)
+    .setFooter({ text: isNational ? 'RPCI • Iscrizione Nazionali' : isClub ? 'RPCI • Iscrizione Club' : 'RPCI • Iscrizione player singoli' })
     .setTimestamp();
 
   const btn = new ButtonBuilder()
-    .setCustomId('player_signup_start')
-    .setLabel('ISCRIVITI COME PLAYER')
+    .setCustomId(customId)
+    .setLabel(label)
     .setStyle(ButtonStyle.Primary);
 
   return { embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] };
 }
 
-function buildPlayerRoleSelect() {
+
+
+function buildPlayerRoleSelect(mode = 'generic') {
+  const customId = mode === 'club'
+    ? 'player_signup_role_select_club'
+    : mode === 'national'
+      ? 'player_signup_role_select_national'
+      : 'player_signup_role_select';
+
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId('player_signup_role_select')
+      .setCustomId(customId)
       .setPlaceholder('Scegli il tuo ruolo principale')
       .addOptions(GAME_ROLES.map(code => ({
         label: `${code} - ${ROLE_LABELS[code]}`,
@@ -789,6 +830,7 @@ function buildPlayerRoleSelect() {
       })))
   );
 }
+
 
 function buildPlayerDataModal() {
   const modal = new ModalBuilder()
@@ -946,7 +988,11 @@ async function getAvailablePlayersForLiveDraft(mode) {
     .in('status', mode === 'national' ? ['assigned'] : ['registered'])
     .order('created_at', { ascending: true });
 
-  return (players || []).filter(player => !usedIds.has(player.discord_id));
+  let filteredPlayers = players || [];
+  if (mode === 'club') filteredPlayers = filteredPlayers.filter(p => p.club_enabled !== false);
+  if (mode === 'national') filteredPlayers = filteredPlayers.filter(p => p.national_enabled !== false);
+
+  return filteredPlayers.filter(player => !usedIds.has(player.discord_id));
 }
 
 async function pickNextLiveDraftPlayer(sessionPack) {
@@ -4017,7 +4063,8 @@ async function publishOperationalPanels() {
   }
 
   await Promise.allSettled([
-    sendPanel(PLAYER_REGISTRATION_CHANNEL_ID, buildPlayerRegistrationPanel, 'Iscrizioni Player'),
+    sendPanel(CLUB_REGISTRATION_CHANNEL_ID, () => buildPlayerRegistrationPanel('club'), 'Iscrizioni Club'),
+    sendPanel(NATIONAL_REGISTRATION_CHANNEL_ID, () => buildPlayerRegistrationPanel('national'), 'Iscrizioni Nazionali'),
     sendPanel(CAPTAIN_ELECTION_PANEL_CHANNEL_ID, buildCaptainElectionPanel, 'Candidature Capitano'),
     sendPanel(FREE_AGENT_CHANNEL_ID, buildFreeAgentPanel, 'Free Agent'),
     sendPanel(BALANCE_CHANNEL_ID, buildBalancePanel, 'Bilancio Club'),
@@ -4443,6 +4490,35 @@ client.on('interactionCreate', async interaction => {
         await setRegistrationOpen(true);
         await interaction.channel.send(buildPlayerRegistrationPanel());
         return interaction.reply({ content: '✅ Pannello iscrizioni player pubblicato e iscrizioni aperte.', flags: MessageFlags.Ephemeral });
+      }
+
+
+      if (interaction.commandName === 'avvia_iscrizioni_club') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isStaff(member)) {
+          return interaction.reply({ content: '❌ Solo lo staff può avviare le iscrizioni Club.', flags: MessageFlags.Ephemeral });
+        }
+
+        await setRegistrationOpen(true);
+        const ch = await client.channels.fetch(CLUB_REGISTRATION_CHANNEL_ID).catch(() => null);
+        if (!ch) return interaction.reply({ content: '❌ Canale iscrizioni Club non trovato.', flags: MessageFlags.Ephemeral });
+
+        await ch.send(buildPlayerRegistrationPanel('club'));
+        return interaction.reply({ content: '✅ Pannello iscrizioni Club pubblicato.', flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.commandName === 'avvia_iscrizioni_nazionale') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!isStaff(member)) {
+          return interaction.reply({ content: '❌ Solo lo staff può avviare le iscrizioni Nazionali.', flags: MessageFlags.Ephemeral });
+        }
+
+        await setRegistrationOpen(true);
+        const ch = await client.channels.fetch(NATIONAL_REGISTRATION_CHANNEL_ID).catch(() => null);
+        if (!ch) return interaction.reply({ content: '❌ Canale iscrizioni Nazionali non trovato.', flags: MessageFlags.Ephemeral });
+
+        await ch.send(buildPlayerRegistrationPanel('national'));
+        return interaction.reply({ content: '✅ Pannello iscrizioni Mondiale/Nazionali pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.commandName === 'chiudi_iscrizioni_player') {
@@ -5415,13 +5491,13 @@ client.on('interactionCreate', async interaction => {
       }
 
 
-      if (interaction.customId === 'player_signup_start') {
+      if (interaction.customId === 'player_signup_start' || interaction.customId === 'player_signup_start_club' || interaction.customId === 'player_signup_start_national') {
         const open = await getRegistrationOpen();
         if (!open) {
           return interaction.reply({ content: '❌ Le iscrizioni player sono chiuse.', flags: MessageFlags.Ephemeral });
         }
 
-        return interaction.reply({ content: 'Seleziona il tuo ruolo principale.', components: [buildPlayerRoleSelect()], flags: MessageFlags.Ephemeral });
+        return interaction.reply({ content: 'Seleziona il tuo ruolo principale.', components: [buildPlayerRoleSelect(playerRegistrationDrafts.get(interaction.user.id)?.mode || 'generic')], flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'competition_prev' || interaction.customId === 'competition_next') {
@@ -5675,7 +5751,7 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      if (interaction.customId === 'player_signup_role_select') {
+      if (interaction.customId === 'player_signup_role_select' || interaction.customId === 'player_signup_role_select_club' || interaction.customId === 'player_signup_role_select_national') {
         const role = interaction.values[0];
         playerRegistrationDrafts.set(interaction.user.id, { primary_role: role });
         return interaction.showModal(buildPlayerDataModal());
@@ -5844,6 +5920,13 @@ client.on('interactionCreate', async interaction => {
 
       if (interaction.customId === 'player_signup_data_modal') {
         const draft = playerRegistrationDrafts.get(interaction.user.id);
+        if (draft && !draft.mode) {
+          draft.mode = interaction.customId === 'player_signup_role_select_club'
+            ? 'club'
+            : interaction.customId === 'player_signup_role_select_national'
+              ? 'national'
+              : 'generic';
+        }
         if (!draft?.primary_role) {
           return interaction.reply({ content: '❌ Ruolo non selezionato. Ricomincia l’iscrizione.', flags: MessageFlags.Ephemeral });
         }
