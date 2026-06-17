@@ -493,6 +493,10 @@ const commands = [
     .setDescription('Staff: pubblica pannelli bilancio, rose, calendario e referti'),
 
   new SlashCommandBuilder()
+    .setName('setup_rpci')
+    .setDescription('Staff: pubblica tutti i pannelli RPCI nei canali corretti'),
+
+  new SlashCommandBuilder()
     .setName('bilancio_club')
     .setDescription('Mostra il bilancio del tuo club'),
 
@@ -5774,7 +5778,7 @@ client.on('interactionCreate', async interaction => {
       }
 
 
-      if (interaction.commandName === 'pubblica_pannelli_canali') {
+      if (interaction.commandName === 'pubblica_pannelli_canali' || interaction.commandName === 'setup_rpci') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return safeInteractionReply(interaction, { content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
         await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
@@ -5865,7 +5869,7 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       }
 
-      if (interaction.commandName === 'pannelli' || interaction.commandName === 'pubblica_pannelli_canali') {
+      if (interaction.commandName === 'pannelli' || interaction.commandName === 'pubblica_pannelli_canali' || interaction.commandName === 'setup_rpci') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
         await publishOperationalPanels();
