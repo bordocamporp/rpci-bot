@@ -31,35 +31,39 @@ const { createClient } = require('@supabase/supabase-js');
   FASE 6: Mercato/Free Agent/Trasferimenti -> da fare dopo
 */
 
-// ====== CANALI/RUOLI ======
-const PLAYER_ROLE_ID = '1507740330299228161';
-const CAPTAIN_ROLE_ID = '1507736309282635817';
-const STAFF_ROLE_IDS = ['1398225204404289669', '1507735305279635610'];
+// ====== CANALI/RUOLI - BC | BORDO CAMPO ======
+const PLAYER_ROLE_ID = process.env.PLAYER_ROLE_ID || '1514358446324187237';
+const CAPTAIN_ROLE_ID = process.env.CAPTAIN_ROLE_ID || '1514358445179142235';
+const STAFF_ROLE_IDS = (process.env.STAFF_ROLE_IDS || '1498341567105339492')
+  .split(',')
+  .map(id => id.trim())
+  .filter(Boolean);
 
-const PLAYER_REGISTRATION_CHANNEL_ID = process.env.PLAYER_REGISTRATION_CHANNEL_ID || '1507746191528562778';
+const PLAYER_REGISTRATION_CHANNEL_ID = process.env.PLAYER_REGISTRATION_CHANNEL_ID || '1514358628293804054';
 const CLUB_REGISTRATION_CHANNEL_ID = process.env.CLUB_REGISTRATION_CHANNEL_ID || PLAYER_REGISTRATION_CHANNEL_ID;
 const NATIONAL_REGISTRATION_CHANNEL_ID = process.env.NATIONAL_REGISTRATION_CHANNEL_ID || PLAYER_REGISTRATION_CHANNEL_ID;
-const MATCH_REPORTS_CHANNEL_ID = '1507742878313746443';
-const MATCH_RESULTS_CHANNEL_ID = '1507742819920379974';
-const APPEALS_CHANNEL_ID = '1507742936618500116';
-const BOT_LOG_CHANNEL_ID = '1507744280733683724';
-const FREE_AGENT_CHANNEL_ID = '1507741035999264779';
-const FREE_AGENT_ARCHIVE_CHANNEL_ID = '1512529993308311736';
-const CONTRACT_DEPOSIT_CHANNEL_ID = '1508454065535979591';
-const CAPTAIN_ELECTION_PANEL_CHANNEL_ID = '1508166026460663918';
-const CAPTAIN_ELECTION_CANDIDATES_CHANNEL_ID = '1512434324043993209';
-const TRANSFER_REQUESTS_CHANNEL_ID = '1507741180212023509';
-const STANDINGS_CHANNEL_ID = '1507739495431409665';
-const STATS_CHANNEL_ID = '1507739549353119854';
-const BALANCE_CHANNEL_ID = '1512544549141086238';
-const ROSTERS_CHANNEL_ID = '1512544285705244852';
-const CALENDAR_CHANNEL_ID = '1507739436648108272';
-const SEASON_AWARDS_CHANNEL_ID = '1507743000145690794';
+const MATCH_REPORTS_CHANNEL_ID = process.env.MATCH_REPORTS_CHANNEL_ID || '1514358669284737024';
+const MATCH_RESULTS_CHANNEL_ID = process.env.MATCH_RESULTS_CHANNEL_ID || '1514358669284737024';
+const APPEALS_CHANNEL_ID = process.env.APPEALS_CHANNEL_ID || '1514358694245306559';
+const BOT_LOG_CHANNEL_ID = process.env.BOT_LOG_CHANNEL_ID || '1514358694245306559';
+const FREE_AGENT_CHANNEL_ID = process.env.FREE_AGENT_CHANNEL_ID || '1516885856663634000';
+const FREE_AGENT_ARCHIVE_CHANNEL_ID = process.env.FREE_AGENT_ARCHIVE_CHANNEL_ID || FREE_AGENT_CHANNEL_ID;
+const CONTRACT_DEPOSIT_CHANNEL_ID = process.env.CONTRACT_DEPOSIT_CHANNEL_ID || BOT_LOG_CHANNEL_ID;
+const CAPTAIN_ELECTION_PANEL_CHANNEL_ID = process.env.CAPTAIN_ELECTION_PANEL_CHANNEL_ID || PLAYER_REGISTRATION_CHANNEL_ID;
+const CAPTAIN_ELECTION_CANDIDATES_CHANNEL_ID = process.env.CAPTAIN_ELECTION_CANDIDATES_CHANNEL_ID || BOT_LOG_CHANNEL_ID;
+// Trasferimenti disattivati su richiesta: nessun canale pubblico dedicato.
+const TRANSFER_REQUESTS_CHANNEL_ID = process.env.TRANSFER_REQUESTS_CHANNEL_ID || null;
+const STANDINGS_CHANNEL_ID = process.env.STANDINGS_CHANNEL_ID || '1514358670564135124';
+const STATS_CHANNEL_ID = process.env.STATS_CHANNEL_ID || '1514358674687262811';
+const BALANCE_CHANNEL_ID = process.env.BALANCE_CHANNEL_ID || BOT_LOG_CHANNEL_ID;
+const ROSTERS_CHANNEL_ID = process.env.ROSTERS_CHANNEL_ID || BOT_LOG_CHANNEL_ID;
+const CALENDAR_CHANNEL_ID = process.env.CALENDAR_CHANNEL_ID || '1514358672887910494';
+const SEASON_AWARDS_CHANNEL_ID = process.env.SEASON_AWARDS_CHANNEL_ID || STATS_CHANNEL_ID;
 const ECONOMY_BASE_CLUB_BUDGET = 500;
 
 
 
-const FREE_AGENT_ROLE_ID = '1507736959009820813';
+const FREE_AGENT_ROLE_ID = process.env.FREE_AGENT_ROLE_ID || PLAYER_ROLE_ID;
 const BASE_CLUB_BUDGET = 500;
 const TIER_SALARIES = {
   ROOKIE: 5,
@@ -429,9 +433,7 @@ const commands = [
     .setName('chiudi_elezioni_capitani')
     .setDescription('Staff: chiude le elezioni capitani/CT e assegna vincitori'),
 
-  new SlashCommandBuilder()
-    .setName('richiedi_trattativa')
-    .setDescription('Capitano: richiedi trattativa per un player di un altro club'),
+  // Comando richiedi_trattativa rimosso: modulo trasferimenti non presente nel nuovo server.
 
   new SlashCommandBuilder()
     .setName('proponi_rinnovo')
@@ -5197,7 +5199,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (interaction.commandName === 'richiedi_trattativa') {
-        return startClubTransfer(interaction);
+        return interaction.reply({ content: '❌ Il modulo trasferimenti non è attivo su questo server.', flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.commandName === 'proponi_rinnovo') {
