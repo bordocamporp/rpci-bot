@@ -219,6 +219,20 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName('cambia_capitano_club')
+    .setDescription('Staff: cambia capitano di un club iscritto e aggiorna la rosa ufficiale')
+    .addStringOption(o =>
+      o.setName('club')
+        .setDescription('Nome esatto del club')
+        .setRequired(true)
+    )
+    .addUserOption(o =>
+      o.setName('nuovo_capitano')
+        .setDescription('Utente da rendere nuovo capitano')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
     .setName('staff_rimuovi_capitano')
     .setDescription('Staff: rimuove il ruolo capitano da un utente')
     .addUserOption(o =>
@@ -2711,7 +2725,7 @@ function buildFreeAgentPanel() {
     .setColor(0x2ecc71)
     .setDescription(
       'Se non fai parte di nessun club puoi candidarti come giocatore Free Agent.\n\n' +
-      'Premi il pulsante qui sotto e compila i dati richiesti.\n\n' +
+      'Premi il pulsante qui sotto e compila i dati richiesti: nome, età, console, tag, overall e ruoli.\n\n' +
       'I club potranno aprire un thread per contattarti e accordarsi con te.'
     )
     .setFooter({ text: 'RPCI • Mercato Free Agent' })
@@ -2743,6 +2757,9 @@ function buildFreeAgentApplyModal() {
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('platform_id').setLabel('TAG CONSOLE').setPlaceholder('PSN / Gamertag / EA ID').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('overall').setLabel('OVERALL ATTUALE').setPlaceholder('Es. 85').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2)
     )
   );
 
@@ -2774,7 +2791,7 @@ function buildFreeAgentEmbed(profile) {
       { name: 'ID Console', value: profile.platform_id || 'N/D', inline: true },
       { name: 'Ruolo 1', value: profile.primary_role || 'N/D', inline: true },
       { name: 'Ruolo 2', value: profile.secondary_role && profile.secondary_role !== 'NO' ? profile.secondary_role : 'NESSUNO', inline: true },
-      { name: 'Overall RPCI', value: String(profile.rpci_overall || 0), inline: true }
+      { name: 'Overall dichiarato', value: String(profile.rpci_overall ?? 'N/D'), inline: true }
     )
     .setFooter({ text: 'RPCI • Free Agent' })
     .setTimestamp();
@@ -4599,6 +4616,9 @@ function buildClubRegistrationModal() {
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('platform_id').setLabel('TAG CONSOLE').setPlaceholder('PSN / Gamertag / EA ID').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('overall').setLabel('OVERALL ATTUALE').setPlaceholder('Es. 85').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2)
     )
   );
 
@@ -4612,6 +4632,9 @@ function buildContractTagModal() {
   modal.addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('platform_id').setLabel('TAG CONSOLE').setPlaceholder('PSN / Gamertag / EA ID').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('overall').setLabel('OVERALL ATTUALE').setPlaceholder('Es. 85').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2)
     )
   );
   return modal;
@@ -4925,6 +4948,130 @@ async function handleStaffTeamDecision(interaction, teamId, approved) {
   if (captainUser) await captainUser.send(`✅ Lo staff ha confermato ufficialmente **${team.name}**. Da ora la rosa è bloccata: nuovi contratti solo quando lo staff aprirà il mercato.`).catch(() => null);
 
   return interaction.update({ content: `✅ Iscrizione ufficiale di **${team.name}** confermata. Rosa pubblicata nel canale TEAM.`, embeds: [], components: [] });
+}
+
+
+async function publishOrUpdateOfficialTeamRoster(teamId, title = '🏟️ ROSA UFFICIALE AGGIORNATA') {
+  const { data: team } = await supabase
+    .from('draft_teams')
+    .select('*')
+    .eq('id', teamId)
+    .maybeSingle();
+  if (!team) return false;
+
+  const teamChannel = await client.channels.fetch(TEAM_ROSTER_CHANNEL_ID).catch(() => null);
+  if (!teamChannel) return false;
+
+  const embed = await buildClubRosterSummaryEmbed(team, title);
+  embed.setColor(0x2ecc71);
+  embed.addFields({
+    name: 'Ultimo aggiornamento',
+    value: `Capitano attuale: <@${team.captain_discord_id}>`,
+    inline: false
+  });
+
+  const recentMessages = await teamChannel.messages.fetch({ limit: 50 }).catch(() => null);
+  const existing = recentMessages?.find(message => {
+    if (message.author?.id !== client.user.id) return false;
+    return message.embeds?.some(existingEmbed => {
+      const description = existingEmbed.description || '';
+      return description.includes(`**Club:** ${team.name}`);
+    });
+  });
+
+  if (existing) {
+    await existing.edit({ embeds: [embed], components: [] }).catch(() => null);
+    return true;
+  }
+
+  await teamChannel.send({ embeds: [embed] }).catch(() => null);
+  return true;
+}
+
+async function changeClubCaptainByStaff(interaction, targetUser, clubName) {
+  const staffMember = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  if (!staffMember || !isStaff(staffMember)) {
+    return interaction.reply({ content: '❌ Solo lo staff può cambiare il capitano di un club.', flags: MessageFlags.Ephemeral });
+  }
+
+  const { data: team } = await supabase
+    .from('draft_teams')
+    .select('*')
+    .ilike('name', clubName)
+    .eq('team_type', 'club')
+    .maybeSingle();
+
+  if (!team) {
+    return interaction.reply({ content: '❌ Club non trovato. Controlla il nome esatto del club.', flags: MessageFlags.Ephemeral });
+  }
+
+  const { data: assignment } = await supabase
+    .from('draft_assignments')
+    .select('*')
+    .eq('draft_team_id', team.id)
+    .eq('discord_id', targetUser.id)
+    .maybeSingle();
+
+  if (!assignment) {
+    return interaction.reply({
+      content: `❌ <@${targetUser.id}> non risulta nella rosa di **${team.name}**. Prima deve firmare il contratto con quel club oppure lo staff deve aggiungerlo alla rosa.`,
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
+  const newCaptainMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+  if (!newCaptainMember) {
+    return interaction.reply({ content: '❌ Nuovo capitano non trovato nel server.', flags: MessageFlags.Ephemeral });
+  }
+
+  const oldCaptainId = team.captain_discord_id;
+  if (oldCaptainId && oldCaptainId !== targetUser.id) {
+    const oldCaptainMember = await interaction.guild.members.fetch(oldCaptainId).catch(() => null);
+    if (oldCaptainMember) {
+      await oldCaptainMember.roles.remove(CAPTAIN_ROLE_ID, `Cambio capitano club ${team.name}`).catch(() => null);
+    }
+  }
+
+  await newCaptainMember.roles.add(CAPTAIN_ROLE_ID, `Nuovo capitano club ${team.name}`).catch(() => null);
+  await newCaptainMember.roles.add(PLAYER_ROLE_ID, `Nuovo capitano club ${team.name}`).catch(() => null);
+  if (assignment.primary_role) await addPrimaryPositionRole(newCaptainMember, assignment.primary_role);
+
+  const { error } = await supabase
+    .from('draft_teams')
+    .update({
+      captain_discord_id: targetUser.id,
+      captain_discord_tag: targetUser.tag,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', team.id);
+
+  if (error) throw error;
+
+  await publishOrUpdateOfficialTeamRoster(team.id, '🏟️ ROSA UFFICIALE AGGIORNATA').catch(() => null);
+  await sendRosterRecapToCaptain(team.id, `✅ Lo staff ti ha assegnato come nuovo capitano di **${team.name}**.`).catch(() => null);
+
+  const newCaptainUser = await client.users.fetch(targetUser.id).catch(() => null);
+  if (newCaptainUser) {
+    await newCaptainUser.send(
+      `✅ Sei stato nominato nuovo capitano di **${team.name}** dallo staff RPCI.\n\n` +
+      `Da ora riceverai le richieste contratto dei player e potrai gestire l'invio della rosa allo staff.`
+    ).catch(() => null);
+  }
+
+  if (oldCaptainId && oldCaptainId !== targetUser.id) {
+    const oldCaptainUser = await client.users.fetch(oldCaptainId).catch(() => null);
+    if (oldCaptainUser) {
+      await oldCaptainUser.send(`ℹ️ Non sei più capitano di **${team.name}**. Lo staff ha assegnato la gestione a <@${targetUser.id}>.`).catch(() => null);
+    }
+  }
+
+  return interaction.reply({
+    content:
+      `✅ Capitano aggiornato per **${team.name}**.\n` +
+      `Nuovo capitano: <@${targetUser.id}>\n` +
+      `Ho aggiornato il messaggio della rosa nel canale TEAM e inviato il resoconto al nuovo capitano.`,
+    flags: MessageFlags.Ephemeral
+  });
 }
 
 async function completeContractDecision(interaction, requestId, accepted) {
@@ -5277,34 +5424,15 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (interaction.commandName === 'staff_assegna_capitano') {
-        const member = await interaction.guild.members.fetch(interaction.user.id);
-        if (!isStaff(member)) {
-          return interaction.reply({ content: '❌ Solo lo staff può assegnare capitani.', flags: MessageFlags.Ephemeral });
-        }
-
         const target = interaction.options.getUser('utente');
         const teamName = interaction.options.getString('squadra').trim();
+        return changeClubCaptainByStaff(interaction, target, teamName);
+      }
 
-        const { data: team } = await supabase.from('draft_teams').select('*').ilike('name', teamName).maybeSingle();
-        if (!team) return interaction.reply({ content: '❌ Squadra non trovata.', flags: MessageFlags.Ephemeral });
-
-        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
-        if (!targetMember) return interaction.reply({ content: '❌ Utente non trovato nel server.', flags: MessageFlags.Ephemeral });
-
-        if (team.captain_discord_id && team.captain_discord_id !== target.id) {
-          const oldMember = await interaction.guild.members.fetch(team.captain_discord_id).catch(() => null);
-          if (oldMember) await oldMember.roles.remove(CAPTAIN_ROLE_ID).catch(() => null);
-        }
-
-        await targetMember.roles.add(CAPTAIN_ROLE_ID).catch(() => null);
-
-        await supabase.from('draft_teams').update({
-          captain_discord_id: target.id,
-          captain_discord_tag: target.tag,
-          updated_at: new Date().toISOString()
-        }).eq('id', team.id);
-
-        return interaction.reply({ content: `✅ <@${target.id}> è ora capitano di **${team.name}**.`, flags: MessageFlags.Ephemeral });
+      if (interaction.commandName === 'cambia_capitano_club') {
+        const target = interaction.options.getUser('nuovo_capitano');
+        const clubName = interaction.options.getString('club').trim();
+        return changeClubCaptainByStaff(interaction, target, clubName);
       }
 
       if (interaction.commandName === 'staff_rimuovi_capitano') {
@@ -6268,8 +6396,8 @@ client.on('interactionCreate', async interaction => {
             age: draft.age,
             platform: draft.platform,
             platform_id: draft.platform_id,
-            overall: 0,
-            rpci_overall: 0,
+            overall: draft.overall,
+            rpci_overall: draft.overall,
             primary_role: draft.primary_role,
             status: 'free_agent'
           }).select().single();
@@ -6286,7 +6414,7 @@ client.on('interactionCreate', async interaction => {
           platform_id: draft.platform_id,
           primary_role: draft.primary_role,
           secondary_role: draft.secondary_role || 'NO',
-          rpci_overall: reg?.rpci_overall || reg?.overall || 0,
+          rpci_overall: draft.overall,
           status: 'open',
           reason: 'Candidatura Free Agent'
         }).select().single();
@@ -6515,6 +6643,7 @@ client.on('interactionCreate', async interaction => {
       if (interaction.customId === 'free_agent_apply_modal') {
         const age = Number(interaction.fields.getTextInputValue('age').trim());
         const platform = interaction.fields.getTextInputValue('platform').trim().toUpperCase();
+        const overall = Number(interaction.fields.getTextInputValue('overall').trim());
 
         if (!Number.isInteger(age) || age < 13 || age > 60) {
           return interaction.reply({ content: '❌ Età non valida.', flags: MessageFlags.Ephemeral });
@@ -6522,12 +6651,16 @@ client.on('interactionCreate', async interaction => {
         if (!['PS5', 'XBOX', 'PC'].includes(platform)) {
           return interaction.reply({ content: '❌ Console valida: PS5, XBOX oppure PC.', flags: MessageFlags.Ephemeral });
         }
+        if (!Number.isInteger(overall) || overall < 1 || overall > 99) {
+          return interaction.reply({ content: '❌ Overall non valido. Inserisci un numero da 1 a 99.', flags: MessageFlags.Ephemeral });
+        }
 
         freeAgentDrafts.set(interaction.user.id, {
           name: interaction.fields.getTextInputValue('name').trim(),
           age,
           platform,
           platform_id: interaction.fields.getTextInputValue('platform_id').trim(),
+          overall,
           primary_role: null,
           secondary_role: null
         });
