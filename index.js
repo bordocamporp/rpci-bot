@@ -48,7 +48,9 @@ const APPEALS_CHANNEL_ID = process.env.APPEALS_CHANNEL_ID || '151435869424530655
 const BOT_LOG_CHANNEL_ID = process.env.BOT_LOG_CHANNEL_ID || '1514358694245306559';
 const FREE_AGENT_CHANNEL_ID = process.env.FREE_AGENT_CHANNEL_ID || '1516885856663634000';
 const FREE_AGENT_ARCHIVE_CHANNEL_ID = process.env.FREE_AGENT_ARCHIVE_CHANNEL_ID || FREE_AGENT_CHANNEL_ID;
-const CONTRACT_DEPOSIT_CHANNEL_ID = process.env.CONTRACT_DEPOSIT_CHANNEL_ID || BOT_LOG_CHANNEL_ID;
+const CONTRACT_DEPOSIT_CHANNEL_ID = process.env.CONTRACT_DEPOSIT_CHANNEL_ID || '1516899046365597847';
+const STAFF_TEAM_APPROVAL_CHANNEL_ID = process.env.STAFF_TEAM_APPROVAL_CHANNEL_ID || '1514633792193560676';
+const TEAM_ROSTER_CHANNEL_ID = process.env.TEAM_ROSTER_CHANNEL_ID || '1514358668034838599';
 const CAPTAIN_ELECTION_PANEL_CHANNEL_ID = process.env.CAPTAIN_ELECTION_PANEL_CHANNEL_ID || PLAYER_REGISTRATION_CHANNEL_ID;
 const CAPTAIN_ELECTION_CANDIDATES_CHANNEL_ID = process.env.CAPTAIN_ELECTION_CANDIDATES_CHANNEL_ID || BOT_LOG_CHANNEL_ID;
 // Trasferimenti disattivati su richiesta: nessun canale pubblico dedicato.
@@ -4089,10 +4091,11 @@ async function publishOperationalPanels() {
   }
 
   await Promise.allSettled([
-    sendPanel(CLUB_REGISTRATION_CHANNEL_ID, buildProClubRegistrationHubPanel, 'Iscrizioni / Club / Contratti'),
+    sendPanel(CLUB_REGISTRATION_CHANNEL_ID, buildProClubRegistrationHubPanel, 'Iscrizione Club Capitani'),
+    sendPanel(CONTRACT_DEPOSIT_CHANNEL_ID, buildContractPanel, 'Contratti Club'),
+    sendPanel(FREE_AGENT_CHANNEL_ID, buildFreeAgentPanel, 'Free Agent'),
     sendPanel(NATIONAL_REGISTRATION_CHANNEL_ID, () => buildPlayerRegistrationPanel('national'), 'Iscrizioni Nazionali'),
     sendPanel(CAPTAIN_ELECTION_PANEL_CHANNEL_ID, buildCaptainElectionPanel, 'Candidature Capitano'),
-    sendPanel(FREE_AGENT_CHANNEL_ID, buildFreeAgentPanel, 'Free Agent'),
     sendPanel(ROSTERS_CHANNEL_ID, buildRosterPanel, 'Rose Club'),
     sendPanel(CALENDAR_CHANNEL_ID, buildCalendarPanel, 'Calendario'),
     sendPanel(MATCH_REPORTS_CHANNEL_ID, buildReportsPanel, 'Referti')
@@ -4534,22 +4537,46 @@ function buildConsoleSelect(customId) {
 
 function buildProClubRegistrationHubPanel() {
   const embed = new EmbedBuilder()
-    .setTitle('👥 ISCRIZIONI PRO CLUB RPCI')
+    .setTitle('🏟️ ISCRIZIONE CLUB RPCI')
     .setColor(0xd4af37)
     .setDescription(
-      '**Scegli cosa devi fare:**\n\n' +
-      '🏟️ **Iscrivi Club** → per capitani che vogliono registrare una squadra.\n' +
-      '📝 **Firma Contratto Club** → per player già appartenenti a un club iscritto.\n' +
-      '🆓 **Free Agent** → per player che cercano squadra.\n\n' +
-      '📌 Gli overall partono da **0** e crescono lentamente con prestazioni, gol, assist, vittorie e trofei.'
+      '**Area riservata ai capitani.**\n\n' +
+      'Premi **ISCRIVI CLUB** per registrare la tua squadra alla competizione.\n\n' +
+      'Ti verrà richiesto di inserire:\n' +
+      '• Nome Club\n' +
+      '• Logo Club tramite link immagine\n' +
+      '• Console e Tag console\n' +
+      '• Ruolo primario obbligatorio\n' +
+      '• Ruolo secondario facoltativo\n\n' +
+      'Al termine riceverai automaticamente il ruolo **Capitano Pro Club** e **Giocatore Pro Club**.'
     )
-    .setFooter({ text: 'RPCI • Pro Club' })
+    .setFooter({ text: 'RPCI • Iscrizione Club' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('bc_club_register_start').setLabel('ISCRIVI CLUB').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('bc_contract_start').setLabel('FIRMA CONTRATTO CLUB').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('free_agent_apply_start').setLabel('FREE AGENT').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId('bc_club_register_start').setLabel('ISCRIVI CLUB').setStyle(ButtonStyle.Primary)
+  );
+  return { embeds: [embed], components: [row] };
+}
+
+function buildContractPanel() {
+  const embed = new EmbedBuilder()
+    .setTitle('📝 CONTRATTI CLUB RPCI')
+    .setColor(0x2ecc71)
+    .setDescription(
+      'Usa questo canale per firmare il contratto con una squadra già registrata.\n\n' +
+      'Premi **FIRMA CONTRATTO CLUB**, seleziona il tuo club e compila:\n' +
+      '• Console\n' +
+      '• Tag console\n' +
+      '• Ruolo primario obbligatorio\n' +
+      '• Ruolo secondario facoltativo\n\n' +
+      'La richiesta verrà inviata in privato al capitano, che potrà accettarla o rifiutarla. Se accettata, riceverai automaticamente il ruolo **Giocatore Pro Club** e il ruolo del tuo ruolo primario.'
+    )
+    .setFooter({ text: 'RPCI • Contratti Club' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('bc_contract_start').setLabel('FIRMA CONTRATTO CLUB').setStyle(ButtonStyle.Success)
   );
   return { embeds: [embed], components: [row] };
 }
@@ -4710,6 +4737,7 @@ async function registerCaptainClub(interaction, draft, modalData) {
 
   const channel = await client.channels.fetch(CLUB_REGISTRATION_CHANNEL_ID).catch(() => null);
   if (channel) await channel.send({ embeds: [publicEmbed] }).catch(() => null);
+  await sendRosterRecapToCaptain(team.id, `✅ Club **${team.name}** registrato. Questo è il primo resoconto della rosa.`).catch(() => null);
 
   clubRegistrationDrafts.delete(interaction.user.id);
   return interaction.reply({ content: `✅ Club **${team.name}** registrato. Hai ricevuto il ruolo Capitano e il ruolo posizione **${draft.primary_role}**.`, flags: MessageFlags.Ephemeral });
@@ -4719,6 +4747,14 @@ async function sendContractApprovalToCaptain(interaction, draft) {
   const team = draft.team;
   if (!team?.captain_discord_id) {
     return interaction.reply({ content: '❌ Questo club non ha ancora un capitano assegnato.', flags: MessageFlags.Ephemeral });
+  }
+
+  const marketOpen = await isMarketOpen().catch(() => false);
+  if (team.status === 'pending_staff') {
+    return interaction.reply({ content: '⏳ Questo club ha già inviato la rosa allo staff. Non può ricevere altri contratti finché lo staff non decide.', flags: MessageFlags.Ephemeral });
+  }
+  if (team.status === 'approved' && !marketOpen) {
+    return interaction.reply({ content: '🔒 Questo club è già stato confermato dallo staff. Nuovi contratti saranno disponibili solo quando lo staff aprirà il mercato.', flags: MessageFlags.Ephemeral });
   }
 
   const requestId = `${Date.now()}_${interaction.user.id}_${team.id}`;
@@ -4758,6 +4794,133 @@ async function sendContractApprovalToCaptain(interaction, draft) {
 
   contractSignupDrafts.delete(interaction.user.id);
   return interaction.reply({ content: `✅ Richiesta inviata al capitano di **${team.name}**. Riceverai una notifica quando accetta o rifiuta.`, flags: MessageFlags.Ephemeral });
+}
+
+
+async function fetchClubRoster(teamId) {
+  const { data: assignments } = await supabase
+    .from('draft_assignments')
+    .select('*')
+    .eq('draft_team_id', teamId)
+    .order('pick_number', { ascending: true });
+
+  const roster = [];
+  for (const row of assignments || []) {
+    const { data: reg } = await supabase
+      .from('player_registrations')
+      .select('*')
+      .eq('discord_id', row.discord_id)
+      .maybeSingle();
+
+    roster.push({
+      discord_id: row.discord_id,
+      discord_tag: row.discord_tag || reg?.discord_tag || 'N/D',
+      name: reg?.name || row.discord_tag || 'Player',
+      platform: reg?.platform || 'N/D',
+      platform_id: row.platform_id || reg?.platform_id || 'N/D',
+      primary_role: row.primary_role || reg?.primary_role || 'N/D',
+      secondary_role: reg?.secondary_role || 'NO',
+      rpci_overall: reg?.rpci_overall ?? reg?.overall ?? 0,
+      pick_number: row.pick_number || 9999
+    });
+  }
+  return roster;
+}
+
+function buildRosterText(roster) {
+  if (!roster.length) return 'Nessun player in rosa.';
+  return roster.map((p, i) => {
+    const second = p.secondary_role && p.secondary_role !== 'NO' ? ` / ${p.secondary_role}` : '';
+    return `${i + 1}. <@${p.discord_id}> • ${p.primary_role}${second} • ${p.platform} • ${p.platform_id} • OVR ${p.rpci_overall}`;
+  }).join('\n').slice(0, 3900);
+}
+
+async function buildClubRosterSummaryEmbed(team, title = '📋 ROSA CLUB RPCI') {
+  const roster = await fetchClubRoster(team.id);
+  return new EmbedBuilder()
+    .setTitle(title)
+    .setColor(0xd4af37)
+    .setDescription(`**Club:** ${team.name}\n**Capitano:** <@${team.captain_discord_id}>\n**Player iscritti:** ${roster.length}\n\n${buildRosterText(roster)}`)
+    .setFooter({ text: 'RPCI • Riepilogo rosa' })
+    .setTimestamp();
+}
+
+async function sendRosterRecapToCaptain(teamId, note = null) {
+  const { data: team } = await supabase.from('draft_teams').select('*').eq('id', teamId).maybeSingle();
+  if (!team?.captain_discord_id) return;
+  const captainUser = await client.users.fetch(team.captain_discord_id).catch(() => null);
+  if (!captainUser) return;
+
+  const embed = await buildClubRosterSummaryEmbed(team, '📋 RESOCONTO ROSA CLUB');
+  if (note) embed.setDescription(`${note}\n\n${embed.data.description || ''}`);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`bc_team_submit_staff_${team.id}`)
+      .setLabel('INVIA ISCRIZIONE UFFICIALE ALLO STAFF')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  await captainUser.send({
+    content: 'Quando la rosa è completa, invia la richiesta ufficiale allo staff.',
+    embeds: [embed],
+    components: [row]
+  }).catch(() => null);
+}
+
+async function submitTeamToStaff(interaction, teamId) {
+  const { data: team } = await supabase.from('draft_teams').select('*').eq('id', teamId).maybeSingle();
+  if (!team) return interaction.reply({ content: '❌ Club non trovato.', flags: MessageFlags.Ephemeral });
+  if (team.captain_discord_id !== interaction.user.id) return interaction.reply({ content: '❌ Solo il capitano può inviare la rosa allo staff.', flags: MessageFlags.Ephemeral });
+  if (team.status === 'approved') return interaction.reply({ content: '✅ Questo club è già stato confermato dallo staff.', flags: MessageFlags.Ephemeral });
+  if (team.status === 'pending_staff') return interaction.reply({ content: '⏳ La richiesta è già stata inviata allo staff.', flags: MessageFlags.Ephemeral });
+
+  const roster = await fetchClubRoster(team.id);
+  if (roster.length < 1) return interaction.reply({ content: '❌ La rosa è vuota.', flags: MessageFlags.Ephemeral });
+
+  await supabase.from('draft_teams').update({ status: 'pending_staff', updated_at: new Date().toISOString() }).eq('id', team.id);
+
+  const staffChannel = await client.channels.fetch(STAFF_TEAM_APPROVAL_CHANNEL_ID).catch(() => null);
+  if (!staffChannel) return interaction.reply({ content: '❌ Canale conferma staff non trovato.', flags: MessageFlags.Ephemeral });
+
+  const embed = await buildClubRosterSummaryEmbed(team, '✅ RICHIESTA ISCRIZIONE UFFICIALE CLUB');
+  embed.setColor(0x3498db);
+  embed.addFields({ name: 'Stato richiesta', value: 'In attesa di conferma staff', inline: false });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`bc_staff_team_approve_${team.id}`).setLabel('CONFERMA ISCRIZIONE').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`bc_staff_team_reject_${team.id}`).setLabel('ANNULLA / RIMANDA').setStyle(ButtonStyle.Danger)
+  );
+
+  await staffChannel.send({ embeds: [embed], components: [row] });
+  return interaction.reply({ content: '✅ Richiesta ufficiale inviata allo staff. Da ora la squadra è bloccata finché lo staff non decide.', flags: MessageFlags.Ephemeral });
+}
+
+async function handleStaffTeamDecision(interaction, teamId, approved) {
+  const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  if (!member || !isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
+
+  const { data: team } = await supabase.from('draft_teams').select('*').eq('id', teamId).maybeSingle();
+  if (!team) return interaction.reply({ content: '❌ Club non trovato.', flags: MessageFlags.Ephemeral });
+
+  if (!approved) {
+    await supabase.from('draft_teams').update({ status: 'registered', updated_at: new Date().toISOString() }).eq('id', team.id);
+    const captainUser = await client.users.fetch(team.captain_discord_id).catch(() => null);
+    if (captainUser) await captainUser.send(`❌ Lo staff ha annullato/rimandato l'iscrizione ufficiale di **${team.name}**. Puoi modificare/completare la rosa e reinviarla.`).catch(() => null);
+    return interaction.update({ content: `❌ Iscrizione ufficiale di **${team.name}** annullata/rimandata.`, embeds: [], components: [] });
+  }
+
+  await supabase.from('draft_teams').update({ status: 'approved', approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', team.id);
+
+  const teamChannel = await client.channels.fetch(TEAM_ROSTER_CHANNEL_ID).catch(() => null);
+  const embed = await buildClubRosterSummaryEmbed(team, '🏟️ ROSA UFFICIALE CONFERMATA');
+  embed.setColor(0x2ecc71);
+  if (teamChannel) await teamChannel.send({ embeds: [embed] }).catch(() => null);
+
+  const captainUser = await client.users.fetch(team.captain_discord_id).catch(() => null);
+  if (captainUser) await captainUser.send(`✅ Lo staff ha confermato ufficialmente **${team.name}**. Da ora la rosa è bloccata: nuovi contratti solo quando lo staff aprirà il mercato.`).catch(() => null);
+
+  return interaction.update({ content: `✅ Iscrizione ufficiale di **${team.name}** confermata. Rosa pubblicata nel canale TEAM.`, embeds: [], components: [] });
 }
 
 async function completeContractDecision(interaction, requestId, accepted) {
@@ -4800,7 +4963,8 @@ async function completeContractDecision(interaction, requestId, accepted) {
 
   pendingContractRequests.delete(requestId);
   if (playerUser) await playerUser.send(`✅ Il capitano ha accettato la tua iscrizione a **${req.teamName}**. Hai ricevuto il ruolo giocatore e il ruolo **${req.primary_role}**.`).catch(() => null);
-  return interaction.update({ content: `✅ Richiesta accettata. <@${req.playerId}> ora fa parte di **${req.teamName}**.`, embeds: [], components: [] });
+  await sendRosterRecapToCaptain(req.teamId, `✅ Hai confermato <@${req.playerId}> nella rosa di **${req.teamName}**.`).catch(() => null);
+  return interaction.update({ content: `✅ Richiesta accettata. <@${req.playerId}> ora fa parte di **${req.teamName}**. Ti ho inviato in DM il resoconto aggiornato della rosa.`, embeds: [], components: [] });
 }
 
 // =======================================================
@@ -5757,6 +5921,21 @@ client.on('interactionCreate', async interaction => {
       if (interaction.customId.startsWith('bc_contract_reject_')) {
         const requestId = interaction.customId.replace('bc_contract_reject_', '');
         return completeContractDecision(interaction, requestId, false);
+      }
+
+      if (interaction.customId.startsWith('bc_team_submit_staff_')) {
+        const teamId = interaction.customId.replace('bc_team_submit_staff_', '');
+        return submitTeamToStaff(interaction, teamId);
+      }
+
+      if (interaction.customId.startsWith('bc_staff_team_approve_')) {
+        const teamId = interaction.customId.replace('bc_staff_team_approve_', '');
+        return handleStaffTeamDecision(interaction, teamId, true);
+      }
+
+      if (interaction.customId.startsWith('bc_staff_team_reject_')) {
+        const teamId = interaction.customId.replace('bc_staff_team_reject_', '');
+        return handleStaffTeamDecision(interaction, teamId, false);
       }
 
       if (interaction.customId === 'free_agent_apply_start') {
