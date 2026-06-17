@@ -94,19 +94,19 @@ const ROLE_LABELS = {
 };
 
 const FC_ROLE_IDS = {
-  POR: '1512389203244089435',
-  TD: '1512389357091164242',
-  DC: '1512389493892845679',
-  TS: '1512389357288423554',
-  CDC: '1512389636654104638',
-  CC: '1512389703918157825',
-  COC: '1512389760599986378',
-  ED: '1512389895333609603',
-  ES: '1512389835476701285',
-  AD: '1512389965017911347',
-  AS: '1512390020873584670',
-  ATT: '1512390105233363106',
-  SP: '1512390105233363106'
+  POR: process.env.ROLE_POR_ID || '1516887647161946192',
+  TD: process.env.ROLE_TD_ID || '1516887724261511188',
+  DC: process.env.ROLE_DC_ID || '1516887754049323038',
+  TS: process.env.ROLE_TS_ID || '1516887793094365184',
+  CDC: process.env.ROLE_CDC_ID || '1516887824903835778',
+  CC: process.env.ROLE_CC_ID || '1516887852418601252',
+  COC: process.env.ROLE_COC_ID || '1516887895892295900',
+  ED: process.env.ROLE_ED_ID || '1516887949143441598',
+  ES: process.env.ROLE_ES_ID || '1516887988582350970',
+  AD: process.env.ROLE_AD_ID || '1516888020941279282',
+  AS: process.env.ROLE_AS_ID || '1516888067678666883',
+  ATT: process.env.ROLE_ATT_ID || '1516888098296954982',
+  SP: process.env.ROLE_SP_ID || '1516888130081259622'
 };
 
 const ROLE_ENV_KEYS = {
@@ -121,7 +121,8 @@ const ROLE_ENV_KEYS = {
   ED: 'ROLE_ED_ID',
   AS: 'ROLE_AS_ID',
   AD: 'ROLE_AD_ID',
-  ATT: 'ROLE_ATT_ID'
+  ATT: 'ROLE_ATT_ID',
+  SP: 'ROLE_SP_ID'
 };
 
 const PER_PAGE = 25;
@@ -140,6 +141,9 @@ const advancedCalendarDrafts = new Map();
 const disciplineDrafts = new Map();
 const renewalDrafts = new Map();
 const liveDraftSessions = new Map();
+const clubRegistrationDrafts = new Map();
+const contractSignupDrafts = new Map();
+const pendingContractRequests = new Map();
 
 // ====== DISCORD/SUPABASE ======
 const client = new Client({
@@ -2702,7 +2706,7 @@ function buildFreeAgentPanel() {
     .setDescription(
       'Se non fai parte di nessun club puoi candidarti come giocatore Free Agent.\n\n' +
       'Premi il pulsante qui sotto e compila i dati richiesti.\n\n' +
-      'I capitani potranno contattarti e, se trovate un accordo, depositare il contratto.'
+      'I club potranno aprire un thread per contattarti e accordarsi con te.'
     )
     .setFooter({ text: 'RPCI • Mercato Free Agent' })
     .setTimestamp();
@@ -2713,6 +2717,30 @@ function buildFreeAgentPanel() {
     .setStyle(ButtonStyle.Success);
 
   return { embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] };
+}
+
+
+function buildFreeAgentApplyModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('free_agent_apply_modal')
+    .setTitle('Candidatura Free Agent');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('name').setLabel('NOME PLAYER').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('age').setLabel('ETÀ').setPlaceholder('Es. 18').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('platform').setLabel('CONSOLE').setPlaceholder('PS5 / XBOX / PC').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('platform_id').setLabel('TAG CONSOLE').setPlaceholder('PSN / Gamertag / EA ID').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    )
+  );
+
+  return modal;
 }
 
 function buildFreeAgentRoleSelect(prefix, secondary = false, primaryRole = null) {
@@ -2750,12 +2778,8 @@ function buildFreeAgentButtons(profileId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`fa_contact_forum_${profileId}`)
-      .setLabel('PRENDI CONTATTI')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`fa_agreement_${profileId}`)
-      .setLabel('ACCORDO TROVATO')
-      .setStyle(ButtonStyle.Success)
+      .setLabel('AVVIA THREAD CONTATTO')
+      .setStyle(ButtonStyle.Primary)
   );
 }
 
@@ -4065,11 +4089,10 @@ async function publishOperationalPanels() {
   }
 
   await Promise.allSettled([
-    sendPanel(CLUB_REGISTRATION_CHANNEL_ID, () => buildPlayerRegistrationPanel('club'), 'Iscrizioni Club'),
+    sendPanel(CLUB_REGISTRATION_CHANNEL_ID, buildProClubRegistrationHubPanel, 'Iscrizioni / Club / Contratti'),
     sendPanel(NATIONAL_REGISTRATION_CHANNEL_ID, () => buildPlayerRegistrationPanel('national'), 'Iscrizioni Nazionali'),
     sendPanel(CAPTAIN_ELECTION_PANEL_CHANNEL_ID, buildCaptainElectionPanel, 'Candidature Capitano'),
     sendPanel(FREE_AGENT_CHANNEL_ID, buildFreeAgentPanel, 'Free Agent'),
-    sendPanel(BALANCE_CHANNEL_ID, buildBalancePanel, 'Bilancio Club'),
     sendPanel(ROSTERS_CHANNEL_ID, buildRosterPanel, 'Rose Club'),
     sendPanel(CALENDAR_CHANNEL_ID, buildCalendarPanel, 'Calendario'),
     sendPanel(MATCH_REPORTS_CHANNEL_ID, buildReportsPanel, 'Referti')
@@ -4477,6 +4500,309 @@ async function safeInteractionEdit(interaction, payload) {
 
 // =======================================================
 // INTERACTIONS
+
+// =======================================================
+// MODULO ISCRIZIONI CLUB / FIRMA CONTRATTO - BC BORDO CAMPO
+// =======================================================
+function buildPositionSelect(customId, placeholder = 'Seleziona ruolo', includeNone = false, excludeRole = null) {
+  const options = [];
+  if (includeNone) options.push({ label: 'NESSUNO', value: 'NO', description: 'Nessun ruolo secondario' });
+  for (const role of GAME_ROLES) {
+    if (role === excludeRole) continue;
+    options.push({ label: `${role} - ${ROLE_LABELS[role] || role}`, value: role });
+  }
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder(placeholder)
+      .addOptions(options.slice(0, 25))
+  );
+}
+
+function buildConsoleSelect(customId) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder('Seleziona console')
+      .addOptions([
+        { label: 'PS5', value: 'PS5' },
+        { label: 'Xbox', value: 'XBOX' },
+        { label: 'PC', value: 'PC' }
+      ])
+  );
+}
+
+function buildProClubRegistrationHubPanel() {
+  const embed = new EmbedBuilder()
+    .setTitle('👥 ISCRIZIONI PRO CLUB RPCI')
+    .setColor(0xd4af37)
+    .setDescription(
+      '**Scegli cosa devi fare:**\n\n' +
+      '🏟️ **Iscrivi Club** → per capitani che vogliono registrare una squadra.\n' +
+      '📝 **Firma Contratto Club** → per player già appartenenti a un club iscritto.\n' +
+      '🆓 **Free Agent** → per player che cercano squadra.\n\n' +
+      '📌 Gli overall partono da **0** e crescono lentamente con prestazioni, gol, assist, vittorie e trofei.'
+    )
+    .setFooter({ text: 'RPCI • Pro Club' })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('bc_club_register_start').setLabel('ISCRIVI CLUB').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('bc_contract_start').setLabel('FIRMA CONTRATTO CLUB').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('free_agent_apply_start').setLabel('FREE AGENT').setStyle(ButtonStyle.Secondary)
+  );
+  return { embeds: [embed], components: [row] };
+}
+
+function buildClubRegistrationModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('bc_club_register_modal')
+    .setTitle('Iscrizione Club');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('club_name').setLabel('NOME CLUB').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('logo_url').setLabel('LINK LOGO CLUB').setPlaceholder('Incolla URL immagine logo').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(300)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('platform_id').setLabel('TAG CONSOLE').setPlaceholder('PSN / Gamertag / EA ID').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    )
+  );
+
+  return modal;
+}
+
+function buildContractTagModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('bc_contract_tag_modal')
+    .setTitle('Firma Contratto Club');
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('platform_id').setLabel('TAG CONSOLE').setPlaceholder('PSN / Gamertag / EA ID').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80)
+    )
+  );
+  return modal;
+}
+
+async function fetchRegisteredClubs() {
+  const { data } = await supabase
+    .from('draft_teams')
+    .select('*')
+    .eq('team_type', 'club')
+    .order('name', { ascending: true });
+  return data || [];
+}
+
+function buildClubSelect(clubs) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('bc_contract_club_select')
+      .setPlaceholder('Seleziona il tuo club')
+      .addOptions(clubs.slice(0, 25).map(c => ({
+        label: c.name.slice(0, 100),
+        value: String(c.id),
+        description: c.captain_discord_tag ? `Capitano: ${c.captain_discord_tag}`.slice(0, 100) : 'Club iscritto'
+      })))
+  );
+}
+
+async function addPrimaryPositionRole(member, roleCode) {
+  if (!member || !roleCode || roleCode === 'NO') return;
+  const roleId = FC_ROLE_IDS[roleCode];
+  if (roleId) await member.roles.add(roleId).catch(() => null);
+}
+
+async function saveOrUpdatePlayerRegistration(user, data) {
+  const payload = {
+    discord_id: user.id,
+    discord_tag: user.tag,
+    name: data.name || user.username,
+    platform: data.platform,
+    platform_id: data.platform_id,
+    overall: 0,
+    rpci_overall: 0,
+    primary_role: data.primary_role,
+    secondary_role: data.secondary_role || 'NO',
+    club_enabled: true,
+    status: data.status || 'registered',
+    updated_at: new Date().toISOString()
+  };
+  const { data: reg, error } = await supabase.from('player_registrations').upsert(payload, { onConflict: 'discord_id' }).select().single();
+  if (error) throw error;
+  return reg;
+}
+
+async function registerCaptainClub(interaction, draft, modalData) {
+  const clubName = modalData.clubName;
+  const logoUrl = modalData.logoUrl || null;
+  const platformId = modalData.platformId;
+
+  const { data: existing } = await supabase.from('draft_teams').select('*').ilike('name', clubName).eq('team_type', 'club').maybeSingle();
+  if (existing && existing.captain_discord_id && existing.captain_discord_id !== interaction.user.id) {
+    return interaction.reply({ content: '❌ Esiste già un club con questo nome.', flags: MessageFlags.Ephemeral });
+  }
+
+  let team = existing;
+  if (!team) {
+    const { data, error } = await supabase.from('draft_teams').insert({
+      name: clubName,
+      seed_number: 0,
+      team_type: 'club',
+      status: 'registered',
+      created_by_discord_id: interaction.user.id,
+      captain_discord_id: interaction.user.id,
+      captain_discord_tag: interaction.user.tag
+    }).select().single();
+    if (error) throw error;
+    team = data;
+  } else {
+    const { data, error } = await supabase.from('draft_teams').update({
+      captain_discord_id: interaction.user.id,
+      captain_discord_tag: interaction.user.tag,
+      status: 'registered',
+      updated_at: new Date().toISOString()
+    }).eq('id', team.id).select().single();
+    if (error) throw error;
+    team = data;
+  }
+
+  const reg = await saveOrUpdatePlayerRegistration(interaction.user, {
+    name: interaction.member?.displayName || interaction.user.username,
+    platform: draft.platform,
+    platform_id: platformId,
+    primary_role: draft.primary_role,
+    secondary_role: draft.secondary_role,
+    status: 'registered'
+  });
+
+  await supabase.from('draft_assignments').upsert({
+    draft_team_id: team.id,
+    player_registration_id: reg.id,
+    discord_id: interaction.user.id,
+    discord_tag: interaction.user.tag,
+    primary_role: draft.primary_role,
+    platform_id: platformId,
+    pick_number: 1
+  }, { onConflict: 'draft_team_id,discord_id' }).catch(() => null);
+
+  const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  if (member) {
+    await member.roles.add(CAPTAIN_ROLE_ID).catch(() => null);
+    await member.roles.add(PLAYER_ROLE_ID).catch(() => null);
+    await addPrimaryPositionRole(member, draft.primary_role);
+  }
+
+  const publicEmbed = new EmbedBuilder()
+    .setTitle('🏟️ CLUB ISCRITTO')
+    .setColor(0xd4af37)
+    .addFields(
+      { name: 'Club', value: team.name, inline: true },
+      { name: 'Capitano', value: `<@${interaction.user.id}>`, inline: true },
+      { name: 'Console Capitano', value: draft.platform, inline: true },
+      { name: 'Tag Capitano', value: platformId, inline: true },
+      { name: 'Ruolo Capitano', value: `${draft.primary_role}${draft.secondary_role && draft.secondary_role !== 'NO' ? ` / ${draft.secondary_role}` : ''}`, inline: true }
+    )
+    .setFooter({ text: 'RPCI • Iscrizione Club' })
+    .setTimestamp();
+  if (logoUrl && /^https?:\/\//i.test(logoUrl)) publicEmbed.setThumbnail(logoUrl);
+
+  const channel = await client.channels.fetch(CLUB_REGISTRATION_CHANNEL_ID).catch(() => null);
+  if (channel) await channel.send({ embeds: [publicEmbed] }).catch(() => null);
+
+  clubRegistrationDrafts.delete(interaction.user.id);
+  return interaction.reply({ content: `✅ Club **${team.name}** registrato. Hai ricevuto il ruolo Capitano e il ruolo posizione **${draft.primary_role}**.`, flags: MessageFlags.Ephemeral });
+}
+
+async function sendContractApprovalToCaptain(interaction, draft) {
+  const team = draft.team;
+  if (!team?.captain_discord_id) {
+    return interaction.reply({ content: '❌ Questo club non ha ancora un capitano assegnato.', flags: MessageFlags.Ephemeral });
+  }
+
+  const requestId = `${Date.now()}_${interaction.user.id}_${team.id}`;
+  pendingContractRequests.set(requestId, {
+    playerId: interaction.user.id,
+    playerTag: interaction.user.tag,
+    teamId: team.id,
+    teamName: team.name,
+    captainId: team.captain_discord_id,
+    platform: draft.platform,
+    platform_id: draft.platform_id,
+    primary_role: draft.primary_role,
+    secondary_role: draft.secondary_role || 'NO'
+  });
+
+  const captainUser = await client.users.fetch(team.captain_discord_id).catch(() => null);
+  const embed = new EmbedBuilder()
+    .setTitle('📝 RICHIESTA FIRMA CONTRATTO')
+    .setColor(0xd4af37)
+    .setDescription(`Il player <@${interaction.user.id}> vuole firmare per **${team.name}**.`)
+    .addFields(
+      { name: 'Console', value: draft.platform, inline: true },
+      { name: 'Tag Console', value: draft.platform_id, inline: true },
+      { name: 'Ruolo Primario', value: draft.primary_role, inline: true },
+      { name: 'Ruolo Secondario', value: draft.secondary_role && draft.secondary_role !== 'NO' ? draft.secondary_role : 'Nessuno', inline: true },
+      { name: 'Overall iniziale', value: '0', inline: true }
+    )
+    .setTimestamp();
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`bc_contract_accept_${requestId}`).setLabel('ACCETTA').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`bc_contract_reject_${requestId}`).setLabel('RIFIUTA').setStyle(ButtonStyle.Danger)
+  );
+
+  if (captainUser) await captainUser.send({ embeds: [embed], components: [row] }).catch(() => null);
+  const logChannel = await client.channels.fetch(BOT_LOG_CHANNEL_ID).catch(() => null);
+  if (logChannel) await logChannel.send({ content: `📨 Richiesta firma contratto inviata a <@${team.captain_discord_id}> per <@${interaction.user.id}> → **${team.name}**.` }).catch(() => null);
+
+  contractSignupDrafts.delete(interaction.user.id);
+  return interaction.reply({ content: `✅ Richiesta inviata al capitano di **${team.name}**. Riceverai una notifica quando accetta o rifiuta.`, flags: MessageFlags.Ephemeral });
+}
+
+async function completeContractDecision(interaction, requestId, accepted) {
+  const req = pendingContractRequests.get(requestId);
+  if (!req) return interaction.reply({ content: '❌ Richiesta non trovata o scaduta. Il player deve rifare la richiesta.', flags: MessageFlags.Ephemeral });
+  if (interaction.user.id !== req.captainId) return interaction.reply({ content: '❌ Solo il capitano del club può rispondere.', flags: MessageFlags.Ephemeral });
+
+  const playerUser = await client.users.fetch(req.playerId).catch(() => null);
+  if (!accepted) {
+    pendingContractRequests.delete(requestId);
+    if (playerUser) await playerUser.send(`❌ La tua richiesta per **${req.teamName}** è stata rifiutata dal capitano.`).catch(() => null);
+    return interaction.update({ content: `❌ Richiesta rifiutata per <@${req.playerId}>.`, embeds: [], components: [] });
+  }
+
+  const reg = await saveOrUpdatePlayerRegistration({ id: req.playerId, tag: req.playerTag, username: req.playerTag }, {
+    name: req.playerTag,
+    platform: req.platform,
+    platform_id: req.platform_id,
+    primary_role: req.primary_role,
+    secondary_role: req.secondary_role,
+    status: 'registered'
+  });
+
+  await supabase.from('draft_assignments').upsert({
+    draft_team_id: req.teamId,
+    player_registration_id: reg.id,
+    discord_id: req.playerId,
+    discord_tag: req.playerTag,
+    primary_role: req.primary_role,
+    platform_id: req.platform_id,
+    pick_number: 9999
+  }, { onConflict: 'draft_team_id,discord_id' }).catch(() => null);
+
+  const guild = client.guilds.cache.get(process.env.GUILD_ID) || interaction.guild;
+  const member = await guild?.members.fetch(req.playerId).catch(() => null);
+  if (member) {
+    await member.roles.add(PLAYER_ROLE_ID).catch(() => null);
+    await addPrimaryPositionRole(member, req.primary_role);
+  }
+
+  pendingContractRequests.delete(requestId);
+  if (playerUser) await playerUser.send(`✅ Il capitano ha accettato la tua iscrizione a **${req.teamName}**. Hai ricevuto il ruolo giocatore e il ruolo **${req.primary_role}**.`).catch(() => null);
+  return interaction.update({ content: `✅ Richiesta accettata. <@${req.playerId}> ora fa parte di **${req.teamName}**.`, embeds: [], components: [] });
+}
+
 // =======================================================
 client.on('interactionCreate', async interaction => {
   try {
@@ -4505,7 +4831,7 @@ client.on('interactionCreate', async interaction => {
         const ch = await client.channels.fetch(CLUB_REGISTRATION_CHANNEL_ID).catch(() => null);
         if (!ch) return interaction.reply({ content: '❌ Canale iscrizioni Club non trovato.', flags: MessageFlags.Ephemeral });
 
-        await ch.send(buildPlayerRegistrationPanel('club'));
+        await ch.send(buildProClubRegistrationHubPanel());
         return interaction.reply({ content: '✅ Pannello iscrizioni Club pubblicato.', flags: MessageFlags.Ephemeral });
       }
 
@@ -5411,6 +5737,49 @@ client.on('interactionCreate', async interaction => {
     // ====== BUTTONS ======
     if (interaction.isButton()) {
 
+      if (interaction.customId === 'bc_club_register_start') {
+        clubRegistrationDrafts.set(interaction.user.id, { primary_role: null, secondary_role: null, platform: null });
+        return interaction.reply({ content: 'Seleziona il tuo ruolo primario da capitano.', components: [buildPositionSelect('bc_club_captain_primary', 'Ruolo primario capitano')], flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId === 'bc_contract_start') {
+        const clubs = await fetchRegisteredClubs();
+        if (!clubs.length) return interaction.reply({ content: '❌ Nessun club iscritto al momento.', flags: MessageFlags.Ephemeral });
+        contractSignupDrafts.set(interaction.user.id, {});
+        return interaction.reply({ content: 'Seleziona il club di appartenenza.', components: [buildClubSelect(clubs)], flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId.startsWith('bc_contract_accept_')) {
+        const requestId = interaction.customId.replace('bc_contract_accept_', '');
+        return completeContractDecision(interaction, requestId, true);
+      }
+
+      if (interaction.customId.startsWith('bc_contract_reject_')) {
+        const requestId = interaction.customId.replace('bc_contract_reject_', '');
+        return completeContractDecision(interaction, requestId, false);
+      }
+
+      if (interaction.customId === 'free_agent_apply_start') {
+        return interaction.showModal(buildFreeAgentApplyModal());
+      }
+
+      if (interaction.customId.startsWith('fa_contact_forum_')) {
+        const profileId = interaction.customId.replace('fa_contact_forum_', '');
+        const { data: profile } = await supabase.from('free_agent_profiles').select('*').eq('id', profileId).maybeSingle();
+        if (!profile || profile.status !== 'open') return interaction.reply({ content: '❌ Free Agent non disponibile.', flags: MessageFlags.Ephemeral });
+        const channel = await client.channels.fetch(FREE_AGENT_CHANNEL_ID).catch(() => null);
+        if (!channel || !channel.threads) return interaction.reply({ content: '❌ Non posso creare thread in questo canale.', flags: MessageFlags.Ephemeral });
+        const thread = await channel.threads.create({
+          name: `Contatto FA - ${profile.platform_id || profile.name || profile.discord_id}`.slice(0, 95),
+          autoArchiveDuration: 1440,
+          reason: 'Contatto Free Agent RPCI'
+        }).catch(() => null);
+        if (!thread) return interaction.reply({ content: '❌ Errore creazione thread.', flags: MessageFlags.Ephemeral });
+        await thread.send(`🆓 **CONTATTO FREE AGENT**\n\nPlayer: <@${profile.discord_id}>\nConsole: **${profile.platform || 'N/D'}**\nTag: **${profile.platform_id || 'N/D'}**\nRuolo: **${profile.primary_role || 'N/D'}**${profile.secondary_role && profile.secondary_role !== 'NO' ? ` / **${profile.secondary_role}**` : ''}\n\nClub e player possono accordarsi qui.`).catch(() => null);
+        return interaction.reply({ content: `✅ Thread creato: ${thread}`, flags: MessageFlags.Ephemeral });
+      }
+
+
       if (interaction.customId === 'staff_open_market') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!isRpcStaffMember(member)) return interaction.reply({ content: '❌ Solo staff.', flags: MessageFlags.Ephemeral });
@@ -5634,6 +6003,62 @@ client.on('interactionCreate', async interaction => {
 
     // ====== SELECT MENUS ======
     if (interaction.isStringSelectMenu()) {
+
+      if (interaction.customId === 'bc_club_captain_primary') {
+        const draft = clubRegistrationDrafts.get(interaction.user.id) || {};
+        draft.primary_role = interaction.values[0];
+        clubRegistrationDrafts.set(interaction.user.id, draft);
+        return interaction.update({ content: `✅ Ruolo primario: **${draft.primary_role}**. Ora seleziona il ruolo secondario.`, components: [buildPositionSelect('bc_club_captain_secondary', 'Ruolo secondario capitano', true, draft.primary_role)] });
+      }
+
+      if (interaction.customId === 'bc_club_captain_secondary') {
+        const draft = clubRegistrationDrafts.get(interaction.user.id);
+        if (!draft?.primary_role) return interaction.reply({ content: '❌ Dati iscrizione non trovati.', flags: MessageFlags.Ephemeral });
+        draft.secondary_role = interaction.values[0];
+        clubRegistrationDrafts.set(interaction.user.id, draft);
+        return interaction.update({ content: '✅ Ruoli salvati. Ora seleziona la console del capitano.', components: [buildConsoleSelect('bc_club_captain_console')] });
+      }
+
+      if (interaction.customId === 'bc_club_captain_console') {
+        const draft = clubRegistrationDrafts.get(interaction.user.id);
+        if (!draft?.primary_role) return interaction.reply({ content: '❌ Dati iscrizione non trovati.', flags: MessageFlags.Ephemeral });
+        draft.platform = interaction.values[0];
+        clubRegistrationDrafts.set(interaction.user.id, draft);
+        return interaction.showModal(buildClubRegistrationModal());
+      }
+
+      if (interaction.customId === 'bc_contract_club_select') {
+        const clubs = await fetchRegisteredClubs();
+        const team = clubs.find(c => String(c.id) === interaction.values[0]);
+        if (!team) return interaction.reply({ content: '❌ Club non trovato.', flags: MessageFlags.Ephemeral });
+        contractSignupDrafts.set(interaction.user.id, { team });
+        return interaction.update({ content: `Club selezionato: **${team.name}**. Ora scegli la console.`, components: [buildConsoleSelect('bc_contract_console')] });
+      }
+
+      if (interaction.customId === 'bc_contract_console') {
+        const draft = contractSignupDrafts.get(interaction.user.id);
+        if (!draft?.team) return interaction.reply({ content: '❌ Dati contratto non trovati.', flags: MessageFlags.Ephemeral });
+        draft.platform = interaction.values[0];
+        contractSignupDrafts.set(interaction.user.id, draft);
+        return interaction.update({ content: '✅ Console salvata. Ora scegli il ruolo primario.', components: [buildPositionSelect('bc_contract_primary', 'Ruolo primario obbligatorio')] });
+      }
+
+      if (interaction.customId === 'bc_contract_primary') {
+        const draft = contractSignupDrafts.get(interaction.user.id);
+        if (!draft?.team) return interaction.reply({ content: '❌ Dati contratto non trovati.', flags: MessageFlags.Ephemeral });
+        draft.primary_role = interaction.values[0];
+        contractSignupDrafts.set(interaction.user.id, draft);
+        return interaction.update({ content: `✅ Ruolo primario: **${draft.primary_role}**. Ora scegli il ruolo secondario.`, components: [buildPositionSelect('bc_contract_secondary', 'Ruolo secondario facoltativo', true, draft.primary_role)] });
+      }
+
+      if (interaction.customId === 'bc_contract_secondary') {
+        const draft = contractSignupDrafts.get(interaction.user.id);
+        if (!draft?.team || !draft.primary_role) return interaction.reply({ content: '❌ Dati contratto non trovati.', flags: MessageFlags.Ephemeral });
+        draft.secondary_role = interaction.values[0];
+        contractSignupDrafts.set(interaction.user.id, draft);
+        return interaction.showModal(buildContractTagModal());
+      }
+
 
 
       if (interaction.customId === 'free_agent_primary_role_select') {
@@ -5881,6 +6306,28 @@ client.on('interactionCreate', async interaction => {
 
     // ====== MODALS ======
     if (interaction.isModalSubmit()) {
+
+      if (interaction.customId === 'bc_club_register_modal') {
+        const draft = clubRegistrationDrafts.get(interaction.user.id);
+        if (!draft?.primary_role || !draft.platform) return interaction.reply({ content: '❌ Dati iscrizione club non trovati.', flags: MessageFlags.Ephemeral });
+        const clubName = interaction.fields.getTextInputValue('club_name').trim();
+        const logoUrl = interaction.fields.getTextInputValue('logo_url')?.trim();
+        const platformId = interaction.fields.getTextInputValue('platform_id').trim();
+        if (!clubName || clubName.length < 2) return interaction.reply({ content: '❌ Nome club non valido.', flags: MessageFlags.Ephemeral });
+        if (!platformId || platformId.length < 2) return interaction.reply({ content: '❌ Tag console non valido.', flags: MessageFlags.Ephemeral });
+        return registerCaptainClub(interaction, draft, { clubName, logoUrl, platformId });
+      }
+
+      if (interaction.customId === 'bc_contract_tag_modal') {
+        const draft = contractSignupDrafts.get(interaction.user.id);
+        if (!draft?.team || !draft.platform || !draft.primary_role) return interaction.reply({ content: '❌ Dati contratto non trovati.', flags: MessageFlags.Ephemeral });
+        const platformId = interaction.fields.getTextInputValue('platform_id').trim();
+        if (!platformId || platformId.length < 2) return interaction.reply({ content: '❌ Tag console non valido.', flags: MessageFlags.Ephemeral });
+        draft.platform_id = platformId;
+        contractSignupDrafts.set(interaction.user.id, draft);
+        return sendContractApprovalToCaptain(interaction, draft);
+      }
+
 
       if (interaction.customId === 'free_agent_apply_modal') {
         const age = Number(interaction.fields.getTextInputValue('age').trim());
