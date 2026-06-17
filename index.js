@@ -164,59 +164,12 @@ const supabase = createClient(
 );
 
 // ====== SLASH COMMANDS ======
+// Comandi puliti RPCI: lasciamo solo i comandi nuovi del flusso iscrizioni/contratti/free agent.
+// Le azioni player (iscrivi club, firma contratto, free agent) sono gestite dai pulsanti pubblicati da /setup_rpci.
 const commands = [
   new SlashCommandBuilder()
-    .setName('avvia_iscrizioni_player')
-    .setDescription('Staff: pubblica il pannello per iscrizione player singoli'),
-
-  new SlashCommandBuilder()
-    .setName('chiudi_iscrizioni_player')
-    .setDescription('Staff: chiude le iscrizioni player'),
-
-  new SlashCommandBuilder()
-    .setName('avvia_iscrizioni_club')
-    .setDescription('Staff: pubblica il pannello iscrizioni modalità Club'),
-
-  new SlashCommandBuilder()
-    .setName('avvia_iscrizioni_nazionale')
-    .setDescription('Staff: pubblica il pannello iscrizioni Mondiale/Nazionali'),
-
-  new SlashCommandBuilder()
-    .setName('sorteggia_squadre')
-    .setDescription('Staff: sorteggia squadre bilanciate per ruolo')
-    .addIntegerOption(o =>
-      o.setName('numero_squadre')
-        .setDescription('Numero squadre da creare')
-        .setRequired(true)
-        .setMinValue(2)
-        .setMaxValue(40)
-    )
-    .addStringOption(o =>
-      o.setName('nomi_squadre')
-        .setDescription('Nomi separati da virgola. Es: Milan,Inter,Roma,Juve')
-        .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName('max_player')
-        .setDescription('Massimo player per squadra')
-        .setRequired(false)
-        .setMinValue(5)
-        .setMaxValue(30)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('staff_assegna_capitano')
-    .setDescription('Staff: assegna/cambia capitano di una squadra draft')
-    .addUserOption(o =>
-      o.setName('utente')
-        .setDescription('Utente da rendere capitano')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('squadra')
-        .setDescription('Nome esatto squadra draft')
-        .setRequired(true)
-    ),
+    .setName('setup_rpci')
+    .setDescription('Staff: pubblica tutti i pannelli RPCI nei canali corretti'),
 
   new SlashCommandBuilder()
     .setName('cambia_capitano_club')
@@ -233,351 +186,24 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
-    .setName('staff_rimuovi_capitano')
-    .setDescription('Staff: rimuove il ruolo capitano da un utente')
-    .addUserOption(o =>
-      o.setName('utente')
-        .setDescription('Utente da cui rimuovere capitano')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('crea_competizione')
-    .setDescription('Staff: crea una competizione e seleziona le squadre'),
-
-  new SlashCommandBuilder()
-    .setName('genera_calendario')
-    .setDescription('Staff: genera calendario/gironi/tabellone'),
-
-  new SlashCommandBuilder()
-    .setName('referto')
-    .setDescription('Capitani: compila il referto partita'),
-
-  new SlashCommandBuilder()
-    .setName('classifica')
-    .setDescription('Mostra la classifica di una competizione')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome competizione')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('assegna_premio_competizione')
-    .setDescription('Staff: assegna bonus overall per vittoria/coppe/capocannoniere')
-    .addUserOption(o =>
-      o.setName('player')
-        .setDescription('Player da premiare')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('premio')
-        .setDescription('Tipo premio')
-        .setRequired(true)
-        .addChoices(
-          { name: 'Vittoria campionato +15', value: 'league_win' },
-          { name: 'Vittoria coppa nazionale +10', value: 'national_cup_win' },
-          { name: 'Vittoria coppa europea +20', value: 'european_cup_win' },
-          { name: 'Vittoria mondiale/europeo +25', value: 'national_tournament_win' },
-          { name: 'Capocannoniere competizione +10', value: 'top_scorer' }
-        )
-    ),
-
-
-  new SlashCommandBuilder()
-    .setName('avvia_stagione_club')
-    .setDescription('Staff: attiva la modalità club'),
-
-  new SlashCommandBuilder()
-    .setName('chiudi_stagione_club')
-    .setDescription('Staff: chiude la modalità club'),
-
-  new SlashCommandBuilder()
-    .setName('avvia_stagione_nazionale')
-    .setDescription('Staff: attiva la modalità nazionali'),
-
-  new SlashCommandBuilder()
-    .setName('chiudi_stagione_nazionale')
-    .setDescription('Staff: chiude la modalità nazionali'),
-
-  new SlashCommandBuilder()
-    .setName('prepara_draft_club')
-    .setDescription('Staff: prepara il sorteggio live club')
-    .addIntegerOption(o =>
-      o.setName('numero_squadre')
-        .setDescription('Numero squadre club')
-        .setRequired(true)
-        .setMinValue(2)
-        .setMaxValue(40)
-    )
-    .addStringOption(o =>
-      o.setName('nomi_squadre')
-        .setDescription('Nomi squadre separati da virgola')
-        .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName('max_player')
-        .setDescription('Massimo player per squadra')
-        .setRequired(false)
-        .setMinValue(5)
-        .setMaxValue(30)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('prepara_draft_nazionale')
-    .setDescription('Staff: prepara il sorteggio live nazionali')
-    .addIntegerOption(o =>
-      o.setName('numero_nazionali')
-        .setDescription('Numero nazionali')
-        .setRequired(true)
-        .setMinValue(2)
-        .setMaxValue(40)
-    )
-    .addStringOption(o =>
-      o.setName('nomi_nazionali')
-        .setDescription('Nomi nazionali separati da virgola')
-        .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName('max_player')
-        .setDescription('Massimo player per nazionale')
-        .setRequired(false)
-        .setMinValue(5)
-        .setMaxValue(30)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('pesca_draft_live')
-    .setDescription('Staff: pesca il prossimo player del draft live attivo'),
-
-  new SlashCommandBuilder()
-    .setName('chiudi_draft_live')
-    .setDescription('Staff: chiude il draft live attivo'),
-
-  new SlashCommandBuilder()
-    .setName('reset_nazionali')
-    .setDescription('Staff: resetta squadre nazionali e convocazioni dopo una competizione'),
-
-
-  new SlashCommandBuilder()
-    .setName('chiudi_competizione')
-    .setDescription('Staff: chiude una competizione e assegna i bonus vittoria')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome esatto competizione')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('vincitore')
-        .setDescription('Nome esatto squadra/nazionale vincitrice')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('capocannoniere')
-    .setDescription('Mostra il capocannoniere di una competizione')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome competizione')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('assegna_capocannoniere')
-    .setDescription('Staff: assegna bonus capocannoniere a un player')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome competizione')
-        .setRequired(true)
-    )
-    .addUserOption(o =>
-      o.setName('player')
-        .setDescription('Player capocannoniere')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('applica_promozioni_retrocessioni')
-    .setDescription('Staff: calcola promosse/retrocesse di un campionato')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome campionato')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('prossime_partite')
-    .setDescription('Mostra le prossime partite di una competizione')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome competizione')
-        .setRequired(true)
-    ),
-
-
-  new SlashCommandBuilder()
-    .setName('assegna_capitano_club')
-    .setDescription('Staff: assegna un capitano a un club tramite menu'),
-
-  new SlashCommandBuilder()
-    .setName('assegna_capitano_nazionale')
-    .setDescription('Staff: assegna un capitano a una nazionale tramite menu'),
-
-
-  new SlashCommandBuilder()
     .setName('apri_mercato')
-    .setDescription('Staff: apre il mercato club'),
+    .setDescription('Staff: riapre il mercato e permette nuovi contratti ai club approvati'),
 
   new SlashCommandBuilder()
     .setName('chiudi_mercato')
-    .setDescription('Staff: chiude il mercato club'),
-
-  new SlashCommandBuilder()
-    .setName('pubblica_free_agent')
-    .setDescription('Staff: pubblica il pannello candidature free agent'),
-
-  new SlashCommandBuilder()
-    .setName('stagione_terminata')
-    .setDescription('Staff: termina la stagione club e scala i contratti'),
-
-  new SlashCommandBuilder()
-    .setName('budget_club')
-    .setDescription('Capitano: mostra budget e stipendi del club'),
-
-
-  new SlashCommandBuilder()
-    .setName('avvia_elezioni_capitani')
-    .setDescription('Staff: pubblica il pannello candidature capitano/CT'),
-
-  new SlashCommandBuilder()
-    .setName('chiudi_elezioni_capitani')
-    .setDescription('Staff: chiude le elezioni capitani/CT e assegna vincitori'),
-
-  // Comando richiedi_trattativa rimosso: modulo trasferimenti non presente nel nuovo server.
-
-  new SlashCommandBuilder()
-    .setName('proponi_rinnovo')
-    .setDescription('Capitano: proponi rinnovo contratto a un player del tuo club'),
-
-  new SlashCommandBuilder()
-    .setName('ranking_rpci')
-    .setDescription('Mostra la classifica globale Overall RPCI'),
-
-  new SlashCommandBuilder()
-    .setName('hall_of_fame')
-    .setDescription('Mostra la Hall of Fame RPCI'),
-
-  new SlashCommandBuilder()
-    .setName('assegna_premio')
-    .setDescription('Staff: assegna un premio RPCI a un player')
-    .addUserOption(o =>
-      o.setName('player')
-        .setDescription('Player da premiare')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('premio')
-        .setDescription('Tipo premio')
-        .setRequired(true)
-        .addChoices(
-          { name: 'MVP Stagione +15', value: 'season_mvp' },
-          { name: 'Miglior Portiere +10', value: 'best_gk' },
-          { name: 'Miglior Difensore +10', value: 'best_defender' },
-          { name: 'Miglior Assistman +10', value: 'best_assistman' },
-          { name: 'Fair Play +5', value: 'fair_play' }
-        )
-    ),
-
-
-  new SlashCommandBuilder()
-    .setName('pannello_staff')
-    .setDescription('Staff: apre pannello centrale gestione RPCI'),
-
-  new SlashCommandBuilder()
-    .setName('backup_stagione')
-    .setDescription('Staff: crea backup manuale stagione'),
-
-  new SlashCommandBuilder()
-    .setName('squalifiche')
-    .setDescription('Mostra player squalificati'),
-
-
-  new SlashCommandBuilder()
-    .setName('pubblica_pannelli_canali')
-    .setDescription('Staff: pubblica pannelli bilancio, rose, calendario e referti'),
-
-  new SlashCommandBuilder()
-    .setName('setup_rpci')
-    .setDescription('Staff: pubblica tutti i pannelli RPCI nei canali corretti'),
-
-  new SlashCommandBuilder()
-    .setName('bilancio_club')
-    .setDescription('Mostra il bilancio del tuo club'),
-
-  new SlashCommandBuilder()
-    .setName('rosa_club')
-    .setDescription('Mostra la rosa del tuo club'),
-
-  new SlashCommandBuilder()
-    .setName('calendario_mia_squadra')
-    .setDescription('Mostra il calendario della tua squadra'),
-
-
-  new SlashCommandBuilder()
-    .setName('genera_fase_finale')
-    .setDescription('Staff: genera fase finale automatica da gironi')
-    .addStringOption(o =>
-      o.setName('competizione')
-        .setDescription('Nome competizione')
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('staff_dashboard')
-    .setDescription('Staff: mostra dashboard avanzata RPCI'),
-
-  new SlashCommandBuilder()
-    .setName('carriera_player')
-    .setDescription('Mostra storico carriera RPCI di un player')
-    .addUserOption(o =>
-      o.setName('player')
-        .setDescription('Player')
-        .setRequired(false)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('controlli_sistema')
-    .setDescription('Staff: controlli anti-errore database e mercato'),
-
-  new SlashCommandBuilder()
-    .setName('statistiche_player')
-    .setDescription('Mostra statistiche di un player')
-    .addUserOption(o =>
-      o.setName('utente')
-        .setDescription('Player')
-        .setRequired(true)
-    )
+    .setDescription('Staff: chiude il mercato e blocca nuovi contratti')
 ].map(c => c.toJSON());
-
-
-
-
-
-
-
-
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 const PRIORITY_COMMANDS = [
-  'staff_dashboard',
-  'pannello_staff',
-  'pubblica_pannelli_canali',
-  'bilancio_club',
-  'rosa_club',
-  'calendario_mia_squadra',
-  'budget_club'
+  'setup_rpci',
+  'cambia_capitano_club',
+  'apri_mercato',
+  'chiudi_mercato'
 ];
+
+
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -656,47 +282,28 @@ async function upsertGuildCommand(command, existingCommands) {
 
 (async () => {
   try {
-    console.log('🔄 Registrazione slash commands prioritaria...');
+    console.log('🔄 Sincronizzazione comandi RPCI puliti...');
     const preparedMap = new Map();
     for (const commandBuilder of commands.filter(Boolean)) {
       const preparedCommand = prepareSlashCommand(commandBuilder);
       if (preparedCommand && !preparedMap.has(preparedCommand.name)) preparedMap.set(preparedCommand.name, preparedCommand);
     }
+
     const prepared = [
       ...PRIORITY_COMMANDS.map(name => preparedMap.get(name)).filter(Boolean),
       ...[...preparedMap.values()].filter(command => !PRIORITY_COMMANDS.includes(command.name))
     ];
-    console.log(`Comandi preparati: ${prepared.length}`);
-    console.log('Comandi prioritari:', PRIORITY_COMMANDS.filter(name => preparedMap.has(name)).join(', '));
 
-    let existingCommands = await rest.get(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID))
-      .catch(error => {
-        console.warn('⚠️ Non riesco a leggere comandi esistenti, procedo in create:', getDiscordError(error));
-        return [];
-      });
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      { body: prepared }
+    );
 
-    const registered = [];
-    const skipped = [];
-    for (const command of prepared) {
-      try {
-        const action = await upsertGuildCommand(command, existingCommands);
-        registered.push(command.name);
-        console.log(`✅ ${action}: ${command.name}`);
-        existingCommands = Array.isArray(existingCommands)
-          ? [...existingCommands.filter(c => c.name !== command.name), { id: 'local', name: command.name }]
-          : [];
-        await sleep(750);
-      } catch (error) {
-        skipped.push(command.name);
-        console.error(`❌ NON registrato: ${command.name}`);
-        console.error(getDiscordError(error));
-        await sleep(1500);
-      }
-    }
-    console.log(`✅ Registrazione completata. Registrati/aggiornati: ${registered.length}/${prepared.length}`);
-    if (skipped.length) console.warn('⚠️ Comandi saltati:', skipped.join(', '));
+    console.log(`✅ Comandi RPCI attivi: ${prepared.length}`);
+    console.log(`✅ Lista comandi: ${prepared.map(c => c.name).join(', ')}`);
+    console.log('🧹 Vecchi comandi rimossi dal server.');
   } catch (error) {
-    console.error('❌ Errore generale registrazione slash commands:', getDiscordError(error));
+    console.error('❌ Errore sincronizzazione comandi RPCI:', getDiscordError(error));
   }
 })();
 
