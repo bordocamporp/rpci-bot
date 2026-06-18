@@ -308,7 +308,7 @@ async function upsertGuildCommand(command, existingCommands) {
 })();
 
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`✅ Bot online come ${client.user.tag}`);
 });
 
@@ -4073,8 +4073,8 @@ async function safeInteractionReply(interaction, payload) {
     if (!interaction || !interaction.isRepliable?.()) return null;
 
     if (interaction.deferred || interaction.replied) {
-      return await interaction.followUp(payload).catch(async () => {
-        return interaction.editReply(payload).catch(() => null);
+      return await interaction.editReply(payload).catch(async () => {
+        return interaction.followUp(payload).catch(() => null);
       });
     }
 
@@ -4302,7 +4302,7 @@ async function registerCaptainClub(interaction, draft, modalData) {
 
   const { data: existing } = await supabase.from('draft_teams').select('*').ilike('name', clubName).eq('team_type', 'club').maybeSingle();
   if (existing && existing.captain_discord_id && existing.captain_discord_id !== interaction.user.id) {
-    return interaction.reply({ content: '❌ Esiste già un club con questo nome.', flags: MessageFlags.Ephemeral });
+    return safeInteractionReply(interaction, { content: '❌ Esiste già un club con questo nome.', flags: MessageFlags.Ephemeral });
   }
 
   let team = existing;
@@ -4374,21 +4374,21 @@ async function registerCaptainClub(interaction, draft, modalData) {
   await sendRosterRecapToCaptain(team.id, `✅ Club **${team.name}** registrato. Questo è il primo resoconto della rosa.`).catch(() => null);
 
   clubRegistrationDrafts.delete(interaction.user.id);
-  return interaction.reply({ content: `✅ Club **${team.name}** registrato. Hai ricevuto il ruolo Capitano e il ruolo posizione **${draft.primary_role}**.`, flags: MessageFlags.Ephemeral });
+  return safeInteractionReply(interaction, { content: `✅ Club **${team.name}** registrato. Hai ricevuto il ruolo Capitano e il ruolo posizione **${draft.primary_role}**.`, flags: MessageFlags.Ephemeral });
 }
 
 async function sendContractApprovalToCaptain(interaction, draft) {
   const team = draft.team;
   if (!team?.captain_discord_id) {
-    return interaction.reply({ content: '❌ Questo club non ha ancora un capitano assegnato.', flags: MessageFlags.Ephemeral });
+    return safeInteractionReply(interaction, { content: '❌ Questo club non ha ancora un capitano assegnato.', flags: MessageFlags.Ephemeral });
   }
 
   const marketOpen = await isMarketOpen().catch(() => false);
   if (team.status === 'pending_staff') {
-    return interaction.reply({ content: '⏳ Questo club ha già inviato la rosa allo staff. Non può ricevere altri contratti finché lo staff non decide.', flags: MessageFlags.Ephemeral });
+    return safeInteractionReply(interaction, { content: '⏳ Questo club ha già inviato la rosa allo staff. Non può ricevere altri contratti finché lo staff non decide.', flags: MessageFlags.Ephemeral });
   }
   if (team.status === 'approved' && !marketOpen) {
-    return interaction.reply({ content: '🔒 Questo club è già stato confermato dallo staff. Nuovi contratti saranno disponibili solo quando lo staff aprirà il mercato.', flags: MessageFlags.Ephemeral });
+    return safeInteractionReply(interaction, { content: '🔒 Questo club è già stato confermato dallo staff. Nuovi contratti saranno disponibili solo quando lo staff aprirà il mercato.', flags: MessageFlags.Ephemeral });
   }
 
   const requestId = `${Date.now()}_${interaction.user.id}_${team.id}`;
@@ -4427,7 +4427,7 @@ async function sendContractApprovalToCaptain(interaction, draft) {
   if (logChannel) await logChannel.send({ content: `📨 Richiesta firma contratto inviata a <@${team.captain_discord_id}> per <@${interaction.user.id}> → **${team.name}**.` }).catch(() => null);
 
   contractSignupDrafts.delete(interaction.user.id);
-  return interaction.reply({ content: `✅ Richiesta inviata al capitano di **${team.name}**. Riceverai una notifica quando accetta o rifiuta.`, flags: MessageFlags.Ephemeral });
+  return safeInteractionReply(interaction, { content: `✅ Richiesta inviata al capitano di **${team.name}**. Riceverai una notifica quando accetta o rifiuta.`, flags: MessageFlags.Ephemeral });
 }
 
 
@@ -5646,10 +5646,23 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (interaction.customId === 'bc_contract_start') {
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
+
         const clubs = await fetchRegisteredClubs();
-        if (!clubs.length) return interaction.reply({ content: '❌ Nessun club iscritto al momento.', flags: MessageFlags.Ephemeral });
+
+        if (!clubs.length) {
+          return safeInteractionEdit(interaction, {
+            content: '❌ Nessun club iscritto al momento.',
+            components: []
+          });
+        }
+
         contractSignupDrafts.set(interaction.user.id, {});
-        return interaction.reply({ content: 'Seleziona il club di appartenenza.', components: [buildClubSelect(clubs)], flags: MessageFlags.Ephemeral });
+
+        return safeInteractionEdit(interaction, {
+          content: 'Seleziona il club di appartenenza.',
+          components: [buildClubSelect(clubs)]
+        });
       }
 
       if (interaction.customId.startsWith('bc_contract_accept_')) {
@@ -5946,11 +5959,21 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (interaction.customId === 'bc_contract_club_select') {
-        const clubs = await fetchRegisteredClubs();
-        const team = clubs.find(c => String(c.id) === interaction.values[0]);
-        if (!team) return interaction.reply({ content: '❌ Club non trovato.', flags: MessageFlags.Ephemeral });
+        await interaction.deferUpdate().catch(() => null);
+
+        const { data: team } = await supabase
+          .from('draft_teams')
+          .select('*')
+          .eq('id', interaction.values[0])
+          .eq('team_type', 'club')
+          .maybeSingle();
+
+        if (!team) {
+          return interaction.followUp({ content: '❌ Club non trovato.', flags: MessageFlags.Ephemeral }).catch(() => null);
+        }
+
         contractSignupDrafts.set(interaction.user.id, { team });
-        return interaction.update({ content: `Club selezionato: **${team.name}**. Ora scegli la console.`, components: [buildConsoleSelect('bc_contract_console')] });
+        return interaction.editReply({ content: `Club selezionato: **${team.name}**. Ora scegli la console.`, components: [buildConsoleSelect('bc_contract_console')] });
       }
 
       if (interaction.customId === 'bc_contract_console') {
@@ -6233,6 +6256,8 @@ client.on('interactionCreate', async interaction => {
         const platformId = interaction.fields.getTextInputValue('platform_id').trim();
         if (!clubName || clubName.length < 2) return interaction.reply({ content: '❌ Nome club non valido.', flags: MessageFlags.Ephemeral });
         if (!platformId || platformId.length < 2) return interaction.reply({ content: '❌ Tag console non valido.', flags: MessageFlags.Ephemeral });
+
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
         return registerCaptainClub(interaction, draft, { clubName, logoUrl, platformId });
       }
 
@@ -6243,6 +6268,8 @@ client.on('interactionCreate', async interaction => {
         if (!platformId || platformId.length < 2) return interaction.reply({ content: '❌ Tag console non valido.', flags: MessageFlags.Ephemeral });
         draft.platform_id = platformId;
         contractSignupDrafts.set(interaction.user.id, draft);
+
+        await safeInteractionDefer(interaction, { flags: MessageFlags.Ephemeral });
         return sendContractApprovalToCaptain(interaction, draft);
       }
 
